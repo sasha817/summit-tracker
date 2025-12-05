@@ -3,6 +3,7 @@ import SummitForm from './components/SummitForm';
 import SummitList from './components/SummitList';
 import SummitMap from './components/SummitMap';
 import FilterBar from './components/FilterBar';
+import GpxAnalyzer from './components/GpxAnalyzer';
 import { summitAPI, visitAPI, statsAPI } from './services/api';
 import './App.css';
 
@@ -18,6 +19,7 @@ function App() {
   const [error, setError] = useState(null);
   const [filters, setFilters] = useState({ search: '', year: '', season: '' });
   const [availableYears, setAvailableYears] = useState([]);
+  const [showGpxAnalyzer, setShowGpxAnalyzer] = useState(false);
 
   // Load summits on mount
   useEffect(() => {
@@ -244,6 +246,76 @@ function App() {
     event.target.value = '';
   };
 
+  const handlePeaksDetected = async (peaks) => {
+    setShowGpxAnalyzer(false);
+    
+    // Query OSM for each detected peak
+    const peaksWithOsmData = [];
+    
+    for (const peak of peaks) {
+      try {
+        // Query OSM using the same logic as in SummitForm
+        const radius = 100;
+        const query = `
+          [out:json];
+          (
+            node["natural"="peak"](around:${radius},${peak.lat},${peak.lon});
+            node["natural"="volcano"](around:${radius},${peak.lat},${peak.lon});
+          );
+          out body;
+        `;
+        
+        const response = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: query,
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.elements && data.elements.length > 0) {
+            const osmPeak = data.elements[0];
+            peaksWithOsmData.push({
+              name: osmPeak.tags?.name || `Gipfel ${peaksWithOsmData.length + 1}`,
+              latitude: osmPeak.lat,
+              longitude: osmPeak.lon,
+              elevation: osmPeak.tags?.ele || peak.ele,
+              wikipedia: osmPeak.tags?.wikipedia || null,
+              fromGpx: true
+            });
+          } else {
+            // No OSM data, use GPX data
+            peaksWithOsmData.push({
+              name: `Gipfel ${peaksWithOsmData.length + 1}`,
+              latitude: peak.lat,
+              longitude: peak.lon,
+              elevation: peak.ele,
+              wikipedia: null,
+              fromGpx: true
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Error querying OSM for peak:', err);
+      }
+    }
+    
+    if (peaksWithOsmData.length === 0) {
+      alert('Keine Gipfel-Daten von OSM erhalten');
+      return;
+    }
+    
+    // Show summary and ask for confirmation
+    const message = `${peaksWithOsmData.length} Gipfel gefunden:\n\n` +
+      peaksWithOsmData.map((p, i) => `${i + 1}. ${p.name} (${p.elevation}m)`).join('\n') +
+      '\n\nMöchten Sie diese Gipfel hinzufügen? (Besuchsdatum wird noch abgefragt)';
+    
+    if (window.confirm(message)) {
+      // TODO: Open form for each peak to add visit date
+      alert('Funktion zum Hinzufügen der Gipfel kommt im nächsten Schritt!');
+      console.log('Peaks to add:', peaksWithOsmData);
+    }
+  };
+
   if (loading) {
     return (
       <div className="loading-screen">
@@ -301,6 +373,12 @@ function App() {
               }}
             >
               {showForm ? 'Abbrechen' : '+ Gipfel hinzufügen'}
+            </button>
+            <button 
+              className="btn btn-secondary"
+              onClick={() => setShowGpxAnalyzer(true)}
+            >
+              📊 GPX analysieren
             </button>
             <button className="btn btn-secondary" onClick={handleExport}>
               Exportieren
@@ -372,6 +450,13 @@ function App() {
           />
         </div>
       </main>
+
+      {showGpxAnalyzer && (
+        <GpxAnalyzer
+          onPeaksDetected={handlePeaksDetected}
+          onClose={() => setShowGpxAnalyzer(false)}
+        />
+      )}
     </div>
   );
 }
