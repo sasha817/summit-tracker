@@ -572,6 +572,44 @@ body {
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  position: relative;
+}
+
+.map-fullscreen-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1000;
+  background: white;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 18px;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.3);
+  transition: all 0.2s;
+}
+
+.map-fullscreen-btn:hover {
+  background: #f7fafc;
+  transform: scale(1.05);
+}
+
+.map-fullscreen-btn:active {
+  transform: scale(0.95);
+}
+
+/* Fullscreen mode adjustments */
+.map-container:fullscreen {
+  border-radius: 0;
+}
+
+.map-container:fullscreen .leaflet-container {
+  border-radius: 0;
 }
 
 /* Custom Leaflet Popup */

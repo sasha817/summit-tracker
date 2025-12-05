@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -56,9 +56,47 @@ function MapBoundsHandler({ summits, selectedId }) {
 
 function SummitMap({ summits, selectedId, onSelectSummit }) {
   const mapRef = useRef(null);
+  const containerRef = useRef(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Handle fullscreen toggle
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().then(() => {
+        setIsFullscreen(true);
+      }).catch(err => {
+        console.error('Error entering fullscreen:', err);
+      });
+    } else {
+      document.exitFullscreen().then(() => {
+        setIsFullscreen(false);
+      });
+    }
+  };
+
+  // Listen for fullscreen changes (e.g., ESC key)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
 
   return (
-    <div className="map-container">
+    <div className="map-container" ref={containerRef}>
+      <button 
+        className="map-fullscreen-btn"
+        onClick={toggleFullscreen}
+        title={isFullscreen ? 'Vollbild beenden (ESC)' : 'Vollbild'}
+      >
+        {isFullscreen ? '✕' : '⛶'}
+      </button>
       <MapContainer
         center={[47.5, 11.5]}
         zoom={6}
