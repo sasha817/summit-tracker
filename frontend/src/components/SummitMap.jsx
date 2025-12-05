@@ -86,7 +86,12 @@ function SummitMap({ summits, selectedId, onSelectSummit }) {
                   {summit.elevation && (
                     <div>⛰️ {summit.elevation} m</div>
                   )}
-                  <div>📅 {new Date(summit.date).toLocaleDateString()}</div>
+                  {summit.lastVisited && (
+                    <div>📅 Last visit: {new Date(summit.lastVisited).toLocaleDateString()}</div>
+                  )}
+                  {summit.visitCount !== undefined && (
+                    <div>🔢 {summit.visitCount} {summit.visitCount === 1 ? 'visit' : 'visits'}</div>
+                  )}
                   <div>
                     📍 {summit.latitude.toFixed(4)}, {summit.longitude.toFixed(4)}
                   </div>

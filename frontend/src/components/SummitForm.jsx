@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 
-function SummitForm({ onSubmit, onCancel, initialData = null }) {
+function SummitForm({ onSubmit, onCancel, initialData = null, mode = 'create' }) {
+  // mode can be: 'create' (summit+visit), 'edit-summit', 'add-visit', 'edit-visit'
+  
   const [formData, setFormData] = useState(
     initialData || {
       name: '',
@@ -9,18 +11,18 @@ function SummitForm({ onSubmit, onCancel, initialData = null }) {
       date: new Date().toISOString().split('T')[0],
       elevation: '',
       wikipedia: '',
+      notes: '',
     }
   );
 
   const [errors, setErrors] = useState({});
-  const isEditing = !!initialData;
   const [osmData, setOsmData] = useState(null);
   const [showOsmPopup, setShowOsmPopup] = useState(false);
   const [loadingOsm, setLoadingOsm] = useState(false);
 
   // Function to query OSM for peak data
   const queryOSM = async (latitude, longitude) => {
-    const radius = 100; // Search within 100 meters
+    const radius = 100;
     const query = `
       [out:json];
       (
@@ -43,25 +45,44 @@ function SummitForm({ onSubmit, onCancel, initialData = null }) {
     return data.elements;
   };
 
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371e3;
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return Math.round(R * c);
+  };
+
   const validate = () => {
     const newErrors = {};
 
-    if (!formData.name.trim()) {
-      newErrors.name = 'Summit name is required';
+    if (mode !== 'edit-visit' && mode !== 'add-visit') {
+      if (!formData.name.trim()) {
+        newErrors.name = 'Summit name is required';
+      }
+
+      const lat = parseFloat(formData.latitude);
+      if (isNaN(lat) || lat < -90 || lat > 90) {
+        newErrors.latitude = 'Latitude must be between -90 and 90';
+      }
+
+      const lon = parseFloat(formData.longitude);
+      if (isNaN(lon) || lon < -180 || lon > 180) {
+        newErrors.longitude = 'Longitude must be between -180 and 180';
+      }
     }
 
-    const lat = parseFloat(formData.latitude);
-    if (isNaN(lat) || lat < -90 || lat > 90) {
-      newErrors.latitude = 'Latitude must be between -90 and 90';
-    }
-
-    const lon = parseFloat(formData.longitude);
-    if (isNaN(lon) || lon < -180 || lon > 180) {
-      newErrors.longitude = 'Longitude must be between -180 and 180';
-    }
-
-    if (!formData.date) {
-      newErrors.date = 'Date is required';
+    if (mode === 'create' || mode === 'add-visit' || mode === 'edit-visit') {
+      if (!formData.date) {
+        newErrors.date = 'Date is required';
+      }
     }
 
     setErrors(newErrors);
@@ -72,14 +93,33 @@ function SummitForm({ onSubmit, onCancel, initialData = null }) {
     e.preventDefault();
 
     if (validate()) {
-      onSubmit({
-        name: formData.name.trim(),
-        latitude: parseFloat(formData.latitude),
-        longitude: parseFloat(formData.longitude),
-        date: formData.date,
-        elevation: formData.elevation ? parseFloat(formData.elevation) : null,
-        wikipedia: formData.wikipedia ? formData.wikipedia.trim() : null,
-      });
+      const submitData = {};
+      
+      if (mode === 'edit-visit') {
+        submitData.date = formData.date;
+        submitData.notes = formData.notes ? formData.notes.trim() : null;
+      } else if (mode === 'add-visit') {
+        submitData.summitId = initialData.summitId;
+        submitData.date = formData.date;
+        submitData.notes = formData.notes ? formData.notes.trim() : null;
+      } else if (mode === 'edit-summit') {
+        submitData.name = formData.name.trim();
+        submitData.latitude = parseFloat(formData.latitude);
+        submitData.longitude = parseFloat(formData.longitude);
+        submitData.elevation = formData.elevation ? parseFloat(formData.elevation) : null;
+        submitData.wikipedia = formData.wikipedia ? formData.wikipedia.trim() : null;
+      } else {
+        // mode === 'create' - summit with visit
+        submitData.name = formData.name.trim();
+        submitData.latitude = parseFloat(formData.latitude);
+        submitData.longitude = parseFloat(formData.longitude);
+        submitData.date = formData.date;
+        submitData.elevation = formData.elevation ? parseFloat(formData.elevation) : null;
+        submitData.wikipedia = formData.wikipedia ? formData.wikipedia.trim() : null;
+        submitData.notes = formData.notes ? formData.notes.trim() : null;
+      }
+
+      onSubmit(submitData);
 
       // Reset form
       setFormData({
@@ -89,6 +129,7 @@ function SummitForm({ onSubmit, onCancel, initialData = null }) {
         date: new Date().toISOString().split('T')[0],
         elevation: '',
         wikipedia: '',
+        notes: '',
       });
       setErrors({});
     }
@@ -100,7 +141,6 @@ function SummitForm({ onSubmit, onCancel, initialData = null }) {
       ...prev,
       [name]: value,
     }));
-    // Clear error for this field
     if (errors[name]) {
       setErrors((prev) => ({
         ...prev,
@@ -123,24 +163,19 @@ function SummitForm({ onSubmit, onCancel, initialData = null }) {
       const results = await queryOSM(lat, lon);
       
       if (results.length === 0) {
-        alert('No peak found at these coordinates in OSM. The coordinates might still be correct.');
+        alert('No peak found at these coordinates in OSM.');
         return;
       }
 
-      // Get the closest peak
       const peak = results[0];
       const osmDataObj = {
         osmName: peak.tags?.name || 'Unnamed peak',
         osmElevation: peak.tags?.ele || peak.tags?.elevation || null,
         osmWikipedia: peak.tags?.wikipedia || null,
-        osmWikidata: peak.tags?.wikidata || null,
         lat: peak.lat,
         lon: peak.lon,
         distance: calculateDistance(lat, lon, peak.lat, peak.lon),
       };
-      
-      console.log('OSM Data received:', osmDataObj);
-      console.log('Peak tags:', peak.tags);
       
       setOsmData(osmDataObj);
       setShowOsmPopup(true);
@@ -149,21 +184,6 @@ function SummitForm({ onSubmit, onCancel, initialData = null }) {
     } finally {
       setLoadingOsm(false);
     }
-  };
-
-  const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371e3; // Earth radius in meters
-    const φ1 = (lat1 * Math.PI) / 180;
-    const φ2 = (lat2 * Math.PI) / 180;
-    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-
-    const a =
-      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-    return Math.round(R * c); // Distance in meters
   };
 
   const handleApplyOsmData = () => {
@@ -180,6 +200,29 @@ function SummitForm({ onSubmit, onCancel, initialData = null }) {
       setOsmData(null);
     }
   };
+
+  const getFormTitle = () => {
+    switch (mode) {
+      case 'create': return 'Add Summit & First Visit';
+      case 'edit-summit': return 'Edit Summit Details';
+      case 'add-visit': return 'Add New Visit';
+      case 'edit-visit': return 'Edit Visit';
+      default: return 'Summit Form';
+    }
+  };
+
+  const getSubmitButtonText = () => {
+    switch (mode) {
+      case 'create': return 'Save Summit & Visit';
+      case 'edit-summit': return 'Update Summit';
+      case 'add-visit': return 'Add Visit';
+      case 'edit-visit': return 'Update Visit';
+      default: return 'Save';
+    }
+  };
+
+  const showSummitFields = mode !== 'edit-visit' && mode !== 'add-visit';
+  const showVisitFields = mode !== 'edit-summit';
 
   return (
     <>
@@ -200,7 +243,7 @@ function SummitForm({ onSubmit, onCancel, initialData = null }) {
                 <strong>Coordinates:</strong> {osmData.lat.toFixed(6)}, {osmData.lon.toFixed(6)}
               </div>
               <div className="osm-field">
-                <strong>Distance from your point:</strong> {osmData.distance} meters
+                <strong>Distance:</strong> {osmData.distance} meters
               </div>
               {osmData.osmWikipedia && (
                 <div className="osm-field">
@@ -216,16 +259,10 @@ function SummitForm({ onSubmit, onCancel, initialData = null }) {
               )}
             </div>
             <div className="osm-popup-actions">
-              <button
-                className="btn btn-primary"
-                onClick={handleApplyOsmData}
-              >
+              <button className="btn btn-primary" onClick={handleApplyOsmData}>
                 Apply This Data
               </button>
-              <button
-                className="btn btn-secondary"
-                onClick={() => setShowOsmPopup(false)}
-              >
+              <button className="btn btn-secondary" onClick={() => setShowOsmPopup(false)}>
                 Cancel
               </button>
             </div>
@@ -233,112 +270,136 @@ function SummitForm({ onSubmit, onCancel, initialData = null }) {
         </div>
       )}
 
-    <form onSubmit={handleSubmit} className="summit-form">
-      <div className="form-group">
-        <label htmlFor="name">Summit Name *</label>
-        <input
-          type="text"
-          id="name"
-          name="name"
-          value={formData.name}
-          onChange={handleChange}
-          placeholder="e.g., Zugspitze"
-          className={errors.name ? 'error' : ''}
-        />
-        {errors.name && <span className="error-message">{errors.name}</span>}
-      </div>
+      <form onSubmit={handleSubmit} className="summit-form">
+        <h3 className="form-title">{getFormTitle()}</h3>
 
-      <div className="form-row">
-        <div className="form-group">
-          <label htmlFor="latitude">Latitude *</label>
-          <input
-            type="number"
-            id="latitude"
-            name="latitude"
-            value={formData.latitude}
-            onChange={handleChange}
-            step="any"
-            placeholder="47.4211"
-            className={errors.latitude ? 'error' : ''}
-          />
-          {errors.latitude && (
-            <span className="error-message">{errors.latitude}</span>
+        {showSummitFields && (
+          <>
+            <div className="form-group">
+              <label htmlFor="name">Summit Name *</label>
+              <input
+                type="text"
+                id="name"
+                name="name"
+                value={formData.name}
+                onChange={handleChange}
+                placeholder="e.g., Zugspitze"
+                className={errors.name ? 'error' : ''}
+              />
+              {errors.name && <span className="error-message">{errors.name}</span>}
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label htmlFor="latitude">Latitude *</label>
+                <input
+                  type="number"
+                  id="latitude"
+                  name="latitude"
+                  value={formData.latitude}
+                  onChange={handleChange}
+                  step="any"
+                  placeholder="47.4211"
+                  className={errors.latitude ? 'error' : ''}
+                />
+                {errors.latitude && (
+                  <span className="error-message">{errors.latitude}</span>
+                )}
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="longitude">Longitude *</label>
+                <input
+                  type="number"
+                  id="longitude"
+                  name="longitude"
+                  value={formData.longitude}
+                  onChange={handleChange}
+                  step="any"
+                  placeholder="10.9853"
+                  className={errors.longitude ? 'error' : ''}
+                />
+                {errors.longitude && (
+                  <span className="error-message">{errors.longitude}</span>
+                )}
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="elevation">Elevation (meters)</label>
+              <input
+                type="number"
+                id="elevation"
+                name="elevation"
+                value={formData.elevation}
+                onChange={handleChange}
+                step="1"
+                placeholder="e.g., 2962"
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="wikipedia">Wikipedia</label>
+              <input
+                type="text"
+                id="wikipedia"
+                name="wikipedia"
+                value={formData.wikipedia}
+                onChange={handleChange}
+                placeholder="e.g., en:Zugspitze"
+              />
+            </div>
+          </>
+        )}
+
+        {showVisitFields && (
+          <>
+            <div className="form-group">
+              <label htmlFor="date">Date Visited *</label>
+              <input
+                type="date"
+                id="date"
+                name="date"
+                value={formData.date}
+                onChange={handleChange}
+                className={errors.date ? 'error' : ''}
+              />
+              {errors.date && <span className="error-message">{errors.date}</span>}
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="notes">Notes</label>
+              <textarea
+                id="notes"
+                name="notes"
+                value={formData.notes}
+                onChange={handleChange}
+                placeholder="Weather conditions, companions, special moments..."
+                rows="3"
+              />
+            </div>
+          </>
+        )}
+
+        <div className="form-actions">
+          <button type="submit" className="btn btn-primary">
+            {getSubmitButtonText()}
+          </button>
+          {showSummitFields && (
+            <button 
+              type="button" 
+              className="btn btn-secondary btn-osm"
+              onClick={handleCheckOSM}
+              disabled={loadingOsm}
+            >
+              {loadingOsm ? 'Checking...' : '🗺️ Check OSM'}
+            </button>
           )}
+          <button type="button" onClick={onCancel} className="btn btn-secondary">
+            Cancel
+          </button>
         </div>
-
-        <div className="form-group">
-          <label htmlFor="longitude">Longitude *</label>
-          <input
-            type="number"
-            id="longitude"
-            name="longitude"
-            value={formData.longitude}
-            onChange={handleChange}
-            step="any"
-            placeholder="10.9853"
-            className={errors.longitude ? 'error' : ''}
-          />
-          {errors.longitude && (
-            <span className="error-message">{errors.longitude}</span>
-          )}
-        </div>
-      </div>
-
-      <div className="form-group">
-        <label htmlFor="date">Date Visited *</label>
-        <input
-          type="date"
-          id="date"
-          name="date"
-          value={formData.date}
-          onChange={handleChange}
-          className={errors.date ? 'error' : ''}
-        />
-        {errors.date && <span className="error-message">{errors.date}</span>}
-      </div>
-
-      <div className="form-group">
-        <label htmlFor="elevation">Elevation (meters)</label>
-        <input
-          type="number"
-          id="elevation"
-          name="elevation"
-          value={formData.elevation}
-          onChange={handleChange}
-          step="1"
-          placeholder="e.g., 2962"
-        />
-      </div>
-
-      <div className="form-group">
-        <label htmlFor="wikipedia">Wikipedia (optional)</label>
-        <input
-          type="text"
-          id="wikipedia"
-          name="wikipedia"
-          value={formData.wikipedia}
-          onChange={handleChange}
-          placeholder="e.g., en:Zugspitze"
-        />
-      </div>
-
-      <div className="form-actions">
-        <button type="submit" className="btn btn-primary">
-          {isEditing ? 'Update Summit' : 'Save Summit'}
-        </button>
-        <button 
-          type="button" 
-          className="btn btn-secondary btn-osm"
-          onClick={handleCheckOSM}
-          disabled={loadingOsm}
-        >
-          {loadingOsm ? 'Checking OSM...' : '🗺️ Check OSM Data'}
-        </button>
-        <button type="button" onClick={onCancel} className="btn btn-secondary">
-          Cancel
-        </button>
-      </div>
-    </form>
+      </form>
     </>
   );
 }

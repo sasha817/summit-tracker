@@ -44,10 +44,18 @@ function SummitList({ summits, selectedId, onSelect, onDelete, onLocate, onEdit 
                 {summit.latitude.toFixed(6)}, {summit.longitude.toFixed(6)}
               </span>
             </div>
-            <div className="info-item">
-              <span className="icon">📅</span>
-              <span>{new Date(summit.date).toLocaleDateString()}</span>
-            </div>
+            {summit.lastVisited && (
+              <div className="info-item">
+                <span className="icon">📅</span>
+                <span>Last: {new Date(summit.lastVisited).toLocaleDateString()}</span>
+              </div>
+            )}
+            {summit.visitCount !== undefined && (
+              <div className="info-item">
+                <span className="icon">🔢</span>
+                <span>{summit.visitCount} {summit.visitCount === 1 ? 'visit' : 'visits'}</span>
+              </div>
+            )}
             {summit.wikipedia && (
               <div className="info-item">
                 <span className="icon">📖</span>

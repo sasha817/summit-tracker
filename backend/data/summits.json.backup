@@ -1,0 +1,24 @@
+[
+  {
+    "id": 1764839658772,
+    "name": "Benediktenwand",
+    "latitude": 47.6531721,
+    "longitude": 11.4655437,
+    "date": "2025-12-04",
+    "createdAt": "2025-12-04T09:14:18.772Z",
+    "updatedAt": "2025-12-05T08:14:36.242Z",
+    "elevation": 1800,
+    "wikipedia": "de:Benediktenwand"
+  },
+  {
+    "id": 1764839734933,
+    "name": "Vorderer Kirchstein",
+    "latitude": 47.6597349,
+    "longitude": 11.501544,
+    "date": "2025-12-04",
+    "createdAt": "2025-12-04T09:15:34.933Z",
+    "elevation": 1670,
+    "wikipedia": null,
+    "updatedAt": "2025-12-05T08:14:45.173Z"
+  }
+]
