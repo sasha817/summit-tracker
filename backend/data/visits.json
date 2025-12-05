@@ -7,10 +7,38 @@
     "createdAt": "2025-12-04T09:14:18.772Z"
   },
   {
-    "id": 1764840734933,
-    "summitId": 1764839734933,
+    "id": 1764943596044,
+    "summitId": 1764943596041,
     "date": "2025-10-19",
     "notes": null,
-    "createdAt": "2025-12-04T09:15:34.933Z"
+    "createdAt": "2025-12-05T14:06:36.043Z"
+  },
+  {
+    "id": 1764943658345,
+    "summitId": 1764943658342,
+    "date": "2025-10-19",
+    "notes": null,
+    "createdAt": "2025-12-05T14:07:38.344Z"
+  },
+  {
+    "id": 1764943804394,
+    "summitId": 1764943804391,
+    "date": "2025-10-19",
+    "notes": "Mit Vit, Kostya, Taras und Alex R",
+    "createdAt": "2025-12-05T14:10:04.393Z"
+  },
+  {
+    "id": 1764944166103,
+    "summitId": 1764944166100,
+    "date": "2025-12-05",
+    "notes": "Mit Vit, Kostya, Taras und Alex R",
+    "createdAt": "2025-12-05T14:16:06.102Z"
+  },
+  {
+    "id": 1764944229046,
+    "summitId": 1764943596041,
+    "date": "2021-09-12",
+    "notes": "Mit Familie",
+    "createdAt": "2025-12-05T14:17:09.046Z"
   }
 ]

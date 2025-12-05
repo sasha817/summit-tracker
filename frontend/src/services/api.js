@@ -163,7 +163,7 @@ export const dataAPI = {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `summit-tracker-${new Date().toISOString().split('T')[0]}.json`;
+      link.download = `gipfel-tracker-${new Date().toISOString().split('T')[0]}.json`;
       link.click();
       window.URL.revokeObjectURL(url);
     } catch (error) {

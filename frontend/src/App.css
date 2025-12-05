@@ -114,6 +114,15 @@ body {
   background: #90cdf4;
 }
 
+.btn-visit {
+  background: #c6f6d5;
+  color: #22543d;
+}
+
+.btn-visit:hover {
+  background: #9ae6b4;
+}
+
 .btn-edit {
   background: #faf089;
   color: #744210;
@@ -400,6 +409,90 @@ body {
   display: flex;
   gap: 8px;
   margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+/* Visit List Section */
+.visit-section {
+  background: #f7fafc;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 8px;
+  margin-bottom: 12px;
+  border-left: 4px solid #667eea;
+}
+
+.visit-list-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2d3748;
+  margin-bottom: 12px;
+}
+
+.visit-item {
+  background: white;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  transition: all 0.2s;
+}
+
+.visit-item:hover {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.visit-item:last-child {
+  margin-bottom: 0;
+}
+
+.visit-info {
+  flex: 1;
+}
+
+.visit-date {
+  font-size: 14px;
+  font-weight: 500;
+  color: #2d3748;
+  margin-bottom: 4px;
+}
+
+.visit-notes {
+  font-size: 13px;
+  color: #718096;
+  font-style: italic;
+  margin-top: 4px;
+}
+
+.btn-delete-visit {
+  background: #feb2b2;
+  color: #c53030;
+  border: none;
+  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.btn-delete-visit:hover {
+  background: #fc8181;
+  transform: scale(1.1);
+}
+
+.visit-empty {
+  text-align: center;
+  padding: 20px;
+  color: #a0aec0;
+  font-size: 14px;
 }
 
 /* Map */

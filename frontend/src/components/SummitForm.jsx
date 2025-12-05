@@ -203,21 +203,21 @@ function SummitForm({ onSubmit, onCancel, initialData = null, mode = 'create' })
 
   const getFormTitle = () => {
     switch (mode) {
-      case 'create': return 'Add Summit & First Visit';
-      case 'edit-summit': return 'Edit Summit Details';
-      case 'add-visit': return 'Add New Visit';
-      case 'edit-visit': return 'Edit Visit';
-      default: return 'Summit Form';
+      case 'create': return 'Gipfel & ersten Besuch hinzufügen';
+      case 'edit-summit': return 'Gipfel bearbeiten';
+      case 'add-visit': return 'Neuen Besuch hinzufügen';
+      case 'edit-visit': return 'Besuch bearbeiten';
+      default: return 'Gipfelformular';
     }
   };
 
   const getSubmitButtonText = () => {
     switch (mode) {
-      case 'create': return 'Save Summit & Visit';
-      case 'edit-summit': return 'Update Summit';
-      case 'add-visit': return 'Add Visit';
-      case 'edit-visit': return 'Update Visit';
-      default: return 'Save';
+      case 'create': return 'Gipfel & Besuch speichern';
+      case 'edit-summit': return 'Gipfel aktualisieren';
+      case 'add-visit': return 'Besuch hinzufügen';
+      case 'edit-visit': return 'Besuch aktualisieren';
+      default: return 'Speichern';
     }
   };
 
@@ -229,21 +229,21 @@ function SummitForm({ onSubmit, onCancel, initialData = null, mode = 'create' })
       {showOsmPopup && osmData && (
         <div className="osm-popup-overlay" onClick={() => setShowOsmPopup(false)}>
           <div className="osm-popup" onClick={(e) => e.stopPropagation()}>
-            <h3>OpenStreetMap Data Found</h3>
+            <h3>OpenStreetMap-Daten gefunden</h3>
             <div className="osm-data">
               <div className="osm-field">
                 <strong>Name:</strong> {osmData.osmName}
               </div>
               {osmData.osmElevation && (
                 <div className="osm-field">
-                  <strong>Elevation:</strong> {osmData.osmElevation} m
+                  <strong>Höhe:</strong> {osmData.osmElevation} m
                 </div>
               )}
               <div className="osm-field">
-                <strong>Coordinates:</strong> {osmData.lat.toFixed(6)}, {osmData.lon.toFixed(6)}
+                <strong>Koordinaten:</strong> {osmData.lat.toFixed(6)}, {osmData.lon.toFixed(6)}
               </div>
               <div className="osm-field">
-                <strong>Distance:</strong> {osmData.distance} meters
+                <strong>Entfernung:</strong> {osmData.distance} Meter
               </div>
               {osmData.osmWikipedia && (
                 <div className="osm-field">
@@ -260,10 +260,10 @@ function SummitForm({ onSubmit, onCancel, initialData = null, mode = 'create' })
             </div>
             <div className="osm-popup-actions">
               <button className="btn btn-primary" onClick={handleApplyOsmData}>
-                Apply This Data
+                Daten übernehmen
               </button>
               <button className="btn btn-secondary" onClick={() => setShowOsmPopup(false)}>
-                Cancel
+                Abbrechen
               </button>
             </div>
           </div>
@@ -276,14 +276,14 @@ function SummitForm({ onSubmit, onCancel, initialData = null, mode = 'create' })
         {showSummitFields && (
           <>
             <div className="form-group">
-              <label htmlFor="name">Summit Name *</label>
+              <label htmlFor="name">Gipfelname *</label>
               <input
                 type="text"
                 id="name"
                 name="name"
                 value={formData.name}
                 onChange={handleChange}
-                placeholder="e.g., Zugspitze"
+                placeholder="z.B. Zugspitze"
                 className={errors.name ? 'error' : ''}
               />
               {errors.name && <span className="error-message">{errors.name}</span>}
@@ -291,7 +291,7 @@ function SummitForm({ onSubmit, onCancel, initialData = null, mode = 'create' })
 
             <div className="form-row">
               <div className="form-group">
-                <label htmlFor="latitude">Latitude *</label>
+                <label htmlFor="latitude">Breitengrad *</label>
                 <input
                   type="number"
                   id="latitude"
@@ -308,7 +308,7 @@ function SummitForm({ onSubmit, onCancel, initialData = null, mode = 'create' })
               </div>
 
               <div className="form-group">
-                <label htmlFor="longitude">Longitude *</label>
+                <label htmlFor="longitude">Längengrad *</label>
                 <input
                   type="number"
                   id="longitude"
@@ -326,7 +326,7 @@ function SummitForm({ onSubmit, onCancel, initialData = null, mode = 'create' })
             </div>
 
             <div className="form-group">
-              <label htmlFor="elevation">Elevation (meters)</label>
+              <label htmlFor="elevation">Höhe (Meter)</label>
               <input
                 type="number"
                 id="elevation"
@@ -334,7 +334,7 @@ function SummitForm({ onSubmit, onCancel, initialData = null, mode = 'create' })
                 value={formData.elevation}
                 onChange={handleChange}
                 step="1"
-                placeholder="e.g., 2962"
+                placeholder="z.B. 2962"
               />
             </div>
 
@@ -346,7 +346,7 @@ function SummitForm({ onSubmit, onCancel, initialData = null, mode = 'create' })
                 name="wikipedia"
                 value={formData.wikipedia}
                 onChange={handleChange}
-                placeholder="e.g., en:Zugspitze"
+                placeholder="z.B. de:Zugspitze"
               />
             </div>
           </>
@@ -355,7 +355,7 @@ function SummitForm({ onSubmit, onCancel, initialData = null, mode = 'create' })
         {showVisitFields && (
           <>
             <div className="form-group">
-              <label htmlFor="date">Date Visited *</label>
+              <label htmlFor="date">Besuchsdatum *</label>
               <input
                 type="date"
                 id="date"
@@ -368,13 +368,13 @@ function SummitForm({ onSubmit, onCancel, initialData = null, mode = 'create' })
             </div>
 
             <div className="form-group">
-              <label htmlFor="notes">Notes</label>
+              <label htmlFor="notes">Notizen</label>
               <textarea
                 id="notes"
                 name="notes"
                 value={formData.notes}
                 onChange={handleChange}
-                placeholder="Weather conditions, companions, special moments..."
+                placeholder="Wetter, Begleiter, besondere Momente..."
                 rows="3"
               />
             </div>
@@ -396,7 +396,7 @@ function SummitForm({ onSubmit, onCancel, initialData = null, mode = 'create' })
             </button>
           )}
           <button type="button" onClick={onCancel} className="btn btn-secondary">
-            Cancel
+            Abbrechen
           </button>
         </div>
       </form>

@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { formatDate } from '../utils/dateUtils';
 
 // Custom mountain icon
 const mountainIcon = new L.DivIcon({
@@ -87,10 +88,10 @@ function SummitMap({ summits, selectedId, onSelectSummit }) {
                     <div>⛰️ {summit.elevation} m</div>
                   )}
                   {summit.lastVisited && (
-                    <div>📅 Last visit: {new Date(summit.lastVisited).toLocaleDateString()}</div>
+                    <div>📅 Letzter Besuch: {formatDate(summit.lastVisited)}</div>
                   )}
                   {summit.visitCount !== undefined && (
-                    <div>🔢 {summit.visitCount} {summit.visitCount === 1 ? 'visit' : 'visits'}</div>
+                    <div>🔢 {summit.visitCount} {summit.visitCount === 1 ? 'Besuch' : 'Besuche'}</div>
                   )}
                   <div>
                     📍 {summit.latitude.toFixed(4)}, {summit.longitude.toFixed(4)}
