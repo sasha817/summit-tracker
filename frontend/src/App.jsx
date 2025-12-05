@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import SummitForm from './components/SummitForm';
 import SummitList from './components/SummitList';
 import SummitMap from './components/SummitMap';
-import { summitAPI, visitAPI } from './services/api';
+import FilterBar from './components/FilterBar';
+import { summitAPI, visitAPI, statsAPI } from './services/api';
 import './App.css';
 
 function App() {
   const [summits, setSummits] = useState([]);
+  const [allVisits, setAllVisits] = useState([]);
   const [selectedSummitId, setSelectedSummitId] = useState(null);
   const [summitVisits, setSummitVisits] = useState([]);
   const [showForm, setShowForm] = useState(false);
@@ -14,10 +16,14 @@ function App() {
   const [editingData, setEditingData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [filters, setFilters] = useState({ search: '', year: '', season: '' });
+  const [availableYears, setAvailableYears] = useState([]);
 
   // Load summits on mount
   useEffect(() => {
     loadSummits();
+    loadAllVisits();
+    loadStats();
   }, []);
 
   // Load visits when a summit is selected
@@ -43,6 +49,24 @@ function App() {
     }
   };
 
+  const loadAllVisits = async () => {
+    try {
+      const data = await visitAPI.getAll();
+      setAllVisits(data);
+    } catch (err) {
+      console.error('Failed to load all visits:', err);
+    }
+  };
+
+  const loadStats = async () => {
+    try {
+      const stats = await statsAPI.get();
+      setAvailableYears(stats.years || []);
+    } catch (err) {
+      console.error('Failed to load stats:', err);
+    }
+  };
+
   const loadSummitVisits = async (summitId) => {
     try {
       const data = await visitAPI.getAll({ summitId });
@@ -52,6 +76,62 @@ function App() {
       setSummitVisits([]);
     }
   };
+
+  // Filter summits based on current filters
+  const getFilteredSummits = () => {
+    let filtered = [...summits];
+
+    // Filter by search term (summit name)
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase();
+      filtered = filtered.filter(summit =>
+        summit.name.toLowerCase().includes(searchLower)
+      );
+    }
+
+    // Filter by year or season (check ALL visits for each summit)
+    if (filters.year || filters.season) {
+      filtered = filtered.filter(summit => {
+        // Get all visits for this summit
+        const summitVisitsList = allVisits.filter(v => v.summitId === summit.id);
+        
+        if (summitVisitsList.length === 0) return false;
+
+        // Check if ANY visit matches the criteria
+        return summitVisitsList.some(visit => {
+          const visitDate = new Date(visit.date);
+          
+          // Check year
+          if (filters.year) {
+            const visitYear = visitDate.getFullYear();
+            if (visitYear !== parseInt(filters.year)) {
+              return false;
+            }
+          }
+
+          // Check season
+          if (filters.season) {
+            const month = visitDate.getMonth() + 1; // 1-12
+            const seasons = {
+              spring: [3, 4, 5],
+              summer: [6, 7, 8],
+              autumn: [9, 10, 11],
+              winter: [12, 1, 2]
+            };
+            if (!seasons[filters.season]?.includes(month)) {
+              return false;
+            }
+          }
+
+          return true;
+        });
+      });
+    }
+
+    return filtered;
+  };
+
+  const filteredSummits = getFilteredSummits();
 
   const handleAddSummit = async (summitData) => {
     try {
@@ -76,8 +156,9 @@ function App() {
       } else {
         // Create new summit with visit
         await summitAPI.createWithVisit(summitData);
-        // Reload summits to get updated visit counts
+        // Reload summits and visits to get updated data
         await loadSummits();
+        await loadAllVisits();
       }
       setShowForm(false);
       setEditingData(null);
@@ -111,6 +192,7 @@ function App() {
       await visitAPI.delete(visitId);
       // Reload summit visits and summit list to update visit counts
       await loadSummits();
+      await loadAllVisits();
       if (selectedSummitId) {
         await loadSummitVisits(selectedSummitId);
       }
@@ -235,7 +317,8 @@ function App() {
           </div>
         </div>
         <div className="stats">
-          {summits.length} {summits.length === 1 ? 'Gipfel' : 'Gipfel'} besucht
+          {filteredSummits.length} von {summits.length} {summits.length === 1 ? 'Gipfel' : 'Gipfel'}
+          {filters.search || filters.year || filters.season ? ' (gefiltert)' : ''}
         </div>
       </header>
 
@@ -243,6 +326,12 @@ function App() {
         <div className="left-panel">
           <div className="panel">
             <h2 className="panel-title">Deine Gipfel</h2>
+
+            <FilterBar
+              filters={filters}
+              onFilterChange={setFilters}
+              availableYears={availableYears}
+            />
 
             {showForm && (
               <div className="form-container">
@@ -260,7 +349,7 @@ function App() {
             )}
 
             <SummitList
-              summits={summits}
+              summits={filteredSummits}
               selectedId={selectedSummitId}
               onSelect={setSelectedSummitId}
               onDelete={handleDeleteSummit}
@@ -277,7 +366,7 @@ function App() {
 
         <div className="right-panel">
           <SummitMap
-            summits={summits}
+            summits={filteredSummits}
             selectedId={selectedSummitId}
             onSelectSummit={setSelectedSummitId}
           />

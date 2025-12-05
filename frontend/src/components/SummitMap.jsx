@@ -62,6 +62,7 @@ function SummitMap({ summits, selectedId, onSelectSummit }) {
       <MapContainer
         center={[47.5, 11.5]}
         zoom={6}
+        maxZoom={17}
         style={{ height: '100%', width: '100%' }}
         ref={mapRef}
       >
@@ -69,6 +70,7 @@ function SummitMap({ summits, selectedId, onSelectSummit }) {
           url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
           attribution='Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap'
           maxZoom={17}
+          maxNativeZoom={17}
         />
 
         {summits.map((summit) => (
