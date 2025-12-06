@@ -251,6 +251,7 @@ function App() {
     
     // Query OSM for each detected peak
     const peaksWithOsmData = [];
+    const peaksWithoutOsmData = [];
     
     for (const peak of peaks) {
       try {
@@ -280,32 +281,35 @@ function App() {
               longitude: osmPeak.lon,
               elevation: osmPeak.tags?.ele || peak.ele,
               wikipedia: osmPeak.tags?.wikipedia || null,
-              fromGpx: true
+              fromGpx: true,
+              gpxData: peak // Keep original GPX data for reference
             });
           } else {
-            // No OSM data, use GPX data
-            peaksWithOsmData.push({
-              name: `Gipfel ${peaksWithOsmData.length + 1}`,
-              latitude: peak.lat,
-              longitude: peak.lon,
-              elevation: peak.ele,
-              wikipedia: null,
-              fromGpx: true
-            });
+            // No OSM data found
+            peaksWithoutOsmData.push(peak);
           }
+        } else {
+          peaksWithoutOsmData.push(peak);
         }
       } catch (err) {
         console.error('Error querying OSM for peak:', err);
+        peaksWithoutOsmData.push(peak);
       }
     }
     
+    // Log peaks without OSM data for future download feature
+    if (peaksWithoutOsmData.length > 0) {
+      console.log('Peaks without OSM data (for download):', peaksWithoutOsmData);
+      alert(`${peaksWithoutOsmData.length} Gipfel ohne OSM-Daten gefunden. Diese werden übersprungen.\n(Funktion zum Download der Daten kommt bald)`);
+    }
+    
     if (peaksWithOsmData.length === 0) {
-      alert('Keine Gipfel-Daten von OSM erhalten');
+      alert('Keine Gipfel mit OSM-Daten gefunden');
       return;
     }
     
     // Show summary and ask for confirmation
-    const message = `${peaksWithOsmData.length} Gipfel gefunden:\n\n` +
+    const message = `${peaksWithOsmData.length} Gipfel mit OSM-Daten gefunden:\n\n` +
       peaksWithOsmData.map((p, i) => `${i + 1}. ${p.name} (${p.elevation}m)`).join('\n') +
       '\n\nMöchten Sie diese Gipfel hinzufügen? (Besuchsdatum wird noch abgefragt)';
     
