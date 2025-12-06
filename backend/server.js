@@ -1,106 +1,57 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const fs = require('fs').promises;
-const path = require('path');
 require('dotenv').config();
+
+const { dbRun, dbGet, dbAll, initializeDatabase } = require('./database/db');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const SUMMITS_FILE = path.join(__dirname, 'data', 'summits.json');
-const VISITS_FILE = path.join(__dirname, 'data', 'visits.json');
 
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Ensure data directory exists
-async function ensureDataDirectory() {
-  const dataDir = path.join(__dirname, 'data');
-  try {
-    await fs.access(dataDir);
-  } catch {
-    await fs.mkdir(dataDir, { recursive: true });
-  }
-  
-  // Initialize files if they don't exist
-  try {
-    await fs.access(SUMMITS_FILE);
-  } catch {
-    await fs.writeFile(SUMMITS_FILE, '[]', 'utf-8');
-  }
-  
-  try {
-    await fs.access(VISITS_FILE);
-  } catch {
-    await fs.writeFile(VISITS_FILE, '[]', 'utf-8');
-  }
-}
-
-// Read/Write functions
-async function readSummits() {
-  try {
-    const data = await fs.readFile(SUMMITS_FILE, 'utf-8');
-    return JSON.parse(data);
-  } catch (error) {
-    console.error('Error reading summits:', error);
-    return [];
-  }
-}
-
-async function writeSummits(summits) {
-  try {
-    await fs.writeFile(SUMMITS_FILE, JSON.stringify(summits, null, 2), 'utf-8');
-    return true;
-  } catch (error) {
-    console.error('Error writing summits:', error);
-    return false;
-  }
-}
-
-async function readVisits() {
-  try {
-    const data = await fs.readFile(VISITS_FILE, 'utf-8');
-    return JSON.parse(data);
-  } catch (error) {
-    console.error('Error reading visits:', error);
-    return [];
-  }
-}
-
-async function writeVisits(visits) {
-  try {
-    await fs.writeFile(VISITS_FILE, JSON.stringify(visits, null, 2), 'utf-8');
-    return true;
-  } catch (error) {
-    console.error('Error writing visits:', error);
-    return false;
-  }
-}
+// Initialize database on startup
+initializeDatabase().catch(err => {
+  console.error('Failed to initialize database:', err);
+  process.exit(1);
+});
 
 // ===== SUMMIT ENDPOINTS =====
 
 // GET all summits with visit counts
 app.get('/api/summits', async (req, res) => {
   try {
-    const summits = await readSummits();
-    const visits = await readVisits();
+    const summits = await dbAll(`
+      SELECT 
+        s.*,
+        COUNT(v.id) as visitCount,
+        MAX(v.date) as lastVisited
+      FROM summits s
+      LEFT JOIN visits v ON s.id = v.summit_id
+      GROUP BY s.id
+      ORDER BY s.name
+    `);
     
-    // Add visit counts to each summit
-    const summitsWithVisits = summits.map(summit => {
-      const summitVisits = visits.filter(v => v.summitId === summit.id);
-      return {
-        ...summit,
-        visitCount: summitVisits.length,
-        lastVisited: summitVisits.length > 0 
-          ? summitVisits.sort((a, b) => new Date(b.date) - new Date(a.date))[0].date
-          : null
-      };
-    });
+    // Convert snake_case to camelCase for frontend compatibility
+    const formattedSummits = summits.map(summit => ({
+      id: summit.id,
+      name: summit.name,
+      latitude: summit.latitude,
+      longitude: summit.longitude,
+      elevation: summit.elevation,
+      wikipedia: summit.wikipedia,
+      createdAt: summit.created_at,
+      updatedAt: summit.updated_at,
+      visitCount: summit.visitCount,
+      lastVisited: summit.lastVisited
+    }));
     
-    res.json(summitsWithVisits);
+    res.json(formattedSummits);
   } catch (error) {
+    console.error('Error fetching summits:', error);
     res.status(500).json({ error: 'Failed to fetch summits' });
   }
 });
@@ -108,24 +59,41 @@ app.get('/api/summits', async (req, res) => {
 // GET single summit with all visits
 app.get('/api/summits/:id', async (req, res) => {
   try {
-    const summits = await readSummits();
-    const visits = await readVisits();
     const summitId = parseInt(req.params.id);
     
-    const summit = summits.find(s => s.id === summitId);
+    const summit = await dbGet('SELECT * FROM summits WHERE id = ?', [summitId]);
     
     if (!summit) {
       return res.status(404).json({ error: 'Summit not found' });
     }
     
-    const summitVisits = visits.filter(v => v.summitId === summitId)
-      .sort((a, b) => new Date(b.date) - new Date(a.date));
+    const visits = await dbAll(
+      'SELECT * FROM visits WHERE summit_id = ? ORDER BY date DESC',
+      [summitId]
+    );
+    
+    // Format for frontend
+    const formattedVisits = visits.map(v => ({
+      id: v.id,
+      summitId: v.summit_id,
+      date: v.date,
+      notes: v.notes,
+      createdAt: v.created_at
+    }));
     
     res.json({
-      ...summit,
-      visits: summitVisits
+      id: summit.id,
+      name: summit.name,
+      latitude: summit.latitude,
+      longitude: summit.longitude,
+      elevation: summit.elevation,
+      wikipedia: summit.wikipedia,
+      createdAt: summit.created_at,
+      updatedAt: summit.updated_at,
+      visits: formattedVisits
     });
   } catch (error) {
+    console.error('Error fetching summit:', error);
     res.status(500).json({ error: 'Failed to fetch summit' });
   }
 });
@@ -139,41 +107,47 @@ app.post('/api/summits', async (req, res) => {
       return res.status(400).json({ error: 'Name, latitude, and longitude are required' });
     }
     
-    const summits = await readSummits();
-    
     // Check if summit already exists (by coordinates)
-    const existing = summits.find(s => 
-      Math.abs(s.latitude - parseFloat(latitude)) < 0.001 &&
-      Math.abs(s.longitude - parseFloat(longitude)) < 0.001
+    const existing = await dbGet(
+      'SELECT * FROM summits WHERE ABS(latitude - ?) < 0.001 AND ABS(longitude - ?) < 0.001',
+      [parseFloat(latitude), parseFloat(longitude)]
     );
     
     if (existing) {
       return res.status(409).json({ 
         error: 'Summit already exists at these coordinates',
-        summit: existing
+        summit: {
+          id: existing.id,
+          name: existing.name,
+          latitude: existing.latitude,
+          longitude: existing.longitude
+        }
       });
     }
     
-    const newSummit = {
-      id: Date.now(),
-      name: name.trim(),
-      latitude: parseFloat(latitude),
-      longitude: parseFloat(longitude),
-      elevation: elevation ? parseFloat(elevation) : null,
-      wikipedia: wikipedia || null,
-      createdAt: new Date().toISOString()
-    };
+    // Generate ID and timestamps
+    const id = Date.now();
+    const createdAt = new Date().toISOString();
     
-    summits.push(newSummit);
+    await dbRun(
+      `INSERT INTO summits (id, name, latitude, longitude, elevation, wikipedia, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, name, parseFloat(latitude), parseFloat(longitude), elevation || null, wikipedia || null, createdAt]
+    );
     
-    const success = await writeSummits(summits);
+    const newSummit = await dbGet('SELECT * FROM summits WHERE id = ?', [id]);
     
-    if (success) {
-      res.status(201).json(newSummit);
-    } else {
-      res.status(500).json({ error: 'Failed to save summit' });
-    }
+    res.status(201).json({
+      id: newSummit.id,
+      name: newSummit.name,
+      latitude: newSummit.latitude,
+      longitude: newSummit.longitude,
+      elevation: newSummit.elevation,
+      wikipedia: newSummit.wikipedia,
+      createdAt: newSummit.created_at
+    });
   } catch (error) {
+    console.error('Error creating summit:', error);
     res.status(500).json({ error: 'Failed to create summit' });
   }
 });
@@ -181,109 +155,127 @@ app.post('/api/summits', async (req, res) => {
 // PUT update summit
 app.put('/api/summits/:id', async (req, res) => {
   try {
-    const { name, latitude, longitude, elevation, wikipedia } = req.body;
     const summitId = parseInt(req.params.id);
+    const { name, latitude, longitude, elevation, wikipedia } = req.body;
     
-    const summits = await readSummits();
-    const index = summits.findIndex(s => s.id === summitId);
+    const existing = await dbGet('SELECT * FROM summits WHERE id = ?', [summitId]);
     
-    if (index === -1) {
+    if (!existing) {
       return res.status(404).json({ error: 'Summit not found' });
     }
     
-    summits[index] = {
-      ...summits[index],
-      name: name || summits[index].name,
-      latitude: latitude !== undefined ? parseFloat(latitude) : summits[index].latitude,
-      longitude: longitude !== undefined ? parseFloat(longitude) : summits[index].longitude,
-      elevation: elevation !== undefined ? (elevation ? parseFloat(elevation) : null) : summits[index].elevation,
-      wikipedia: wikipedia !== undefined ? wikipedia : summits[index].wikipedia,
-      updatedAt: new Date().toISOString()
-    };
+    const updatedAt = new Date().toISOString();
     
-    const success = await writeSummits(summits);
+    await dbRun(
+      `UPDATE summits 
+       SET name = ?, latitude = ?, longitude = ?, elevation = ?, wikipedia = ?, updated_at = ?
+       WHERE id = ?`,
+      [
+        name || existing.name,
+        latitude !== undefined ? parseFloat(latitude) : existing.latitude,
+        longitude !== undefined ? parseFloat(longitude) : existing.longitude,
+        elevation !== undefined ? elevation : existing.elevation,
+        wikipedia !== undefined ? wikipedia : existing.wikipedia,
+        updatedAt,
+        summitId
+      ]
+    );
     
-    if (success) {
-      res.json(summits[index]);
-    } else {
-      res.status(500).json({ error: 'Failed to update summit' });
-    }
+    const updated = await dbGet('SELECT * FROM summits WHERE id = ?', [summitId]);
+    
+    res.json({
+      id: updated.id,
+      name: updated.name,
+      latitude: updated.latitude,
+      longitude: updated.longitude,
+      elevation: updated.elevation,
+      wikipedia: updated.wikipedia,
+      createdAt: updated.created_at,
+      updatedAt: updated.updated_at
+    });
   } catch (error) {
+    console.error('Error updating summit:', error);
     res.status(500).json({ error: 'Failed to update summit' });
   }
 });
 
-// DELETE summit (and all its visits)
+// DELETE summit
 app.delete('/api/summits/:id', async (req, res) => {
   try {
     const summitId = parseInt(req.params.id);
-    const summits = await readSummits();
-    const visits = await readVisits();
     
-    const filteredSummits = summits.filter(s => s.id !== summitId);
-    const filteredVisits = visits.filter(v => v.summitId !== summitId);
+    const existing = await dbGet('SELECT * FROM summits WHERE id = ?', [summitId]);
     
-    if (filteredSummits.length === summits.length) {
+    if (!existing) {
       return res.status(404).json({ error: 'Summit not found' });
     }
     
-    const successSummits = await writeSummits(filteredSummits);
-    const successVisits = await writeVisits(filteredVisits);
+    // Delete visits first (or rely on CASCADE)
+    await dbRun('DELETE FROM visits WHERE summit_id = ?', [summitId]);
+    await dbRun('DELETE FROM summits WHERE id = ?', [summitId]);
     
-    if (successSummits && successVisits) {
-      res.json({ message: 'Summit and all visits deleted successfully' });
-    } else {
-      res.status(500).json({ error: 'Failed to delete summit' });
-    }
+    res.json({ message: 'Summit deleted successfully' });
   } catch (error) {
+    console.error('Error deleting summit:', error);
     res.status(500).json({ error: 'Failed to delete summit' });
   }
 });
 
 // ===== VISIT ENDPOINTS =====
 
-// GET all visits with optional filters
+// GET all visits (with optional filters)
 app.get('/api/visits', async (req, res) => {
   try {
     const { summitId, year, season } = req.query;
-    let visits = await readVisits();
-    const summits = await readSummits();
     
-    // Filter by summit
+    let sql = `
+      SELECT v.*, s.name as summit_name
+      FROM visits v
+      JOIN summits s ON v.summit_id = s.id
+      WHERE 1=1
+    `;
+    const params = [];
+    
     if (summitId) {
-      visits = visits.filter(v => v.summitId === parseInt(summitId));
+      sql += ' AND v.summit_id = ?';
+      params.push(parseInt(summitId));
     }
     
-    // Filter by year
     if (year) {
-      visits = visits.filter(v => new Date(v.date).getFullYear() === parseInt(year));
+      sql += ' AND strftime("%Y", v.date) = ?';
+      params.push(year);
     }
     
-    // Filter by season
     if (season) {
-      visits = visits.filter(v => {
-        const month = new Date(v.date).getMonth() + 1; // 1-12
-        const seasons = {
-          spring: [3, 4, 5],
-          summer: [6, 7, 8],
-          autumn: [9, 10, 11],
-          winter: [12, 1, 2]
-        };
-        return seasons[season.toLowerCase()]?.includes(month);
-      });
+      const seasonMonths = {
+        'winter': ['12', '01', '02'],
+        'spring': ['03', '04', '05'],
+        'summer': ['06', '07', '08'],
+        'autumn': ['09', '10', '11']
+      };
+      
+      if (seasonMonths[season]) {
+        sql += ' AND strftime("%m", v.date) IN (' + seasonMonths[season].map(() => '?').join(',') + ')';
+        params.push(...seasonMonths[season]);
+      }
     }
     
-    // Enrich visits with summit data
-    const enrichedVisits = visits.map(visit => {
-      const summit = summits.find(s => s.id === visit.summitId);
-      return {
-        ...visit,
-        summit: summit || null
-      };
-    }).sort((a, b) => new Date(b.date) - new Date(a.date));
+    sql += ' ORDER BY v.date DESC';
     
-    res.json(enrichedVisits);
+    const visits = await dbAll(sql, params);
+    
+    const formattedVisits = visits.map(v => ({
+      id: v.id,
+      summitId: v.summit_id,
+      summitName: v.summit_name,
+      date: v.date,
+      notes: v.notes,
+      createdAt: v.created_at
+    }));
+    
+    res.json(formattedVisits);
   } catch (error) {
+    console.error('Error fetching visits:', error);
     res.status(500).json({ error: 'Failed to fetch visits' });
   }
 });
@@ -297,36 +289,31 @@ app.post('/api/visits', async (req, res) => {
       return res.status(400).json({ error: 'Summit ID and date are required' });
     }
     
-    const summits = await readSummits();
-    const summit = summits.find(s => s.id === summitId);
-    
+    // Verify summit exists
+    const summit = await dbGet('SELECT * FROM summits WHERE id = ?', [summitId]);
     if (!summit) {
       return res.status(404).json({ error: 'Summit not found' });
     }
     
-    const visits = await readVisits();
+    const id = Date.now();
+    const createdAt = new Date().toISOString();
     
-    const newVisit = {
-      id: Date.now(),
-      summitId: summitId,
-      date: date,
-      notes: notes || null,
-      createdAt: new Date().toISOString()
-    };
+    await dbRun(
+      'INSERT INTO visits (id, summit_id, date, notes, created_at) VALUES (?, ?, ?, ?, ?)',
+      [id, summitId, date, notes || null, createdAt]
+    );
     
-    visits.push(newVisit);
+    const newVisit = await dbGet('SELECT * FROM visits WHERE id = ?', [id]);
     
-    const success = await writeVisits(visits);
-    
-    if (success) {
-      res.status(201).json({
-        ...newVisit,
-        summit: summit
-      });
-    } else {
-      res.status(500).json({ error: 'Failed to save visit' });
-    }
+    res.status(201).json({
+      id: newVisit.id,
+      summitId: newVisit.summit_id,
+      date: newVisit.date,
+      notes: newVisit.notes,
+      createdAt: newVisit.created_at
+    });
   } catch (error) {
+    console.error('Error creating visit:', error);
     res.status(500).json({ error: 'Failed to create visit' });
   }
 });
@@ -334,31 +321,31 @@ app.post('/api/visits', async (req, res) => {
 // PUT update visit
 app.put('/api/visits/:id', async (req, res) => {
   try {
-    const { date, notes } = req.body;
     const visitId = parseInt(req.params.id);
+    const { date, notes } = req.body;
     
-    const visits = await readVisits();
-    const index = visits.findIndex(v => v.id === visitId);
+    const existing = await dbGet('SELECT * FROM visits WHERE id = ?', [visitId]);
     
-    if (index === -1) {
+    if (!existing) {
       return res.status(404).json({ error: 'Visit not found' });
     }
     
-    visits[index] = {
-      ...visits[index],
-      date: date || visits[index].date,
-      notes: notes !== undefined ? notes : visits[index].notes,
-      updatedAt: new Date().toISOString()
-    };
+    await dbRun(
+      'UPDATE visits SET date = ?, notes = ? WHERE id = ?',
+      [date || existing.date, notes !== undefined ? notes : existing.notes, visitId]
+    );
     
-    const success = await writeVisits(visits);
+    const updated = await dbGet('SELECT * FROM visits WHERE id = ?', [visitId]);
     
-    if (success) {
-      res.json(visits[index]);
-    } else {
-      res.status(500).json({ error: 'Failed to update visit' });
-    }
+    res.json({
+      id: updated.id,
+      summitId: updated.summit_id,
+      date: updated.date,
+      notes: updated.notes,
+      createdAt: updated.created_at
+    });
   } catch (error) {
+    console.error('Error updating visit:', error);
     res.status(500).json({ error: 'Failed to update visit' });
   }
 });
@@ -367,126 +354,156 @@ app.put('/api/visits/:id', async (req, res) => {
 app.delete('/api/visits/:id', async (req, res) => {
   try {
     const visitId = parseInt(req.params.id);
-    const visits = await readVisits();
     
-    const filteredVisits = visits.filter(v => v.id !== visitId);
+    const existing = await dbGet('SELECT * FROM visits WHERE id = ?', [visitId]);
     
-    if (filteredVisits.length === visits.length) {
+    if (!existing) {
       return res.status(404).json({ error: 'Visit not found' });
     }
     
-    const success = await writeVisits(filteredVisits);
+    await dbRun('DELETE FROM visits WHERE id = ?', [visitId]);
     
-    if (success) {
-      res.json({ message: 'Visit deleted successfully' });
-    } else {
-      res.status(500).json({ error: 'Failed to delete visit' });
-    }
+    res.json({ message: 'Visit deleted successfully' });
   } catch (error) {
+    console.error('Error deleting visit:', error);
     res.status(500).json({ error: 'Failed to delete visit' });
   }
 });
 
-// ===== COMBINED ENDPOINTS =====
+// ===== STATS ENDPOINT =====
 
-// POST create summit and visit in one call
-app.post('/api/summits-with-visit', async (req, res) => {
-  try {
-    const { name, latitude, longitude, elevation, wikipedia, date, notes } = req.body;
-    
-    if (!name || !latitude || !longitude || !date) {
-      return res.status(400).json({ error: 'Name, coordinates, and date are required' });
-    }
-    
-    let summits = await readSummits();
-    
-    // Check if summit exists
-    let summit = summits.find(s => 
-      Math.abs(s.latitude - parseFloat(latitude)) < 0.001 &&
-      Math.abs(s.longitude - parseFloat(longitude)) < 0.001
-    );
-    
-    let isNewSummit = false;
-    
-    // Create summit if it doesn't exist
-    if (!summit) {
-      summit = {
-        id: Date.now(),
-        name: name.trim(),
-        latitude: parseFloat(latitude),
-        longitude: parseFloat(longitude),
-        elevation: elevation ? parseFloat(elevation) : null,
-        wikipedia: wikipedia || null,
-        createdAt: new Date().toISOString()
-      };
-      summits.push(summit);
-      await writeSummits(summits);
-      isNewSummit = true;
-    }
-    
-    // Create visit
-    const visits = await readVisits();
-    const newVisit = {
-      id: Date.now() + 1, // Ensure different ID
-      summitId: summit.id,
-      date: date,
-      notes: notes || null,
-      createdAt: new Date().toISOString()
-    };
-    visits.push(newVisit);
-    await writeVisits(visits);
-    
-    res.status(201).json({
-      summit: summit,
-      visit: newVisit,
-      isNewSummit: isNewSummit
-    });
-  } catch (error) {
-    console.error('Error creating summit with visit:', error);
-    res.status(500).json({ error: 'Failed to create summit and visit' });
-  }
-});
-
-// GET statistics
 app.get('/api/stats', async (req, res) => {
   try {
-    const summits = await readSummits();
-    const visits = await readVisits();
+    const stats = {};
     
-    const years = [...new Set(visits.map(v => new Date(v.date).getFullYear()))].sort((a, b) => b - a);
+    // Total summits
+    const summitCount = await dbGet('SELECT COUNT(*) as count FROM summits');
+    stats.totalSummits = summitCount.count;
     
-    const stats = {
-      totalSummits: summits.length,
-      totalVisits: visits.length,
-      years: years,
-      visitsBySeason: {
-        spring: visits.filter(v => [3, 4, 5].includes(new Date(v.date).getMonth() + 1)).length,
-        summer: visits.filter(v => [6, 7, 8].includes(new Date(v.date).getMonth() + 1)).length,
-        autumn: visits.filter(v => [9, 10, 11].includes(new Date(v.date).getMonth() + 1)).length,
-        winter: visits.filter(v => [12, 1, 2].includes(new Date(v.date).getMonth() + 1)).length,
-      }
-    };
+    // Total visits
+    const visitCount = await dbGet('SELECT COUNT(*) as count FROM visits');
+    stats.totalVisits = visitCount.count;
+    
+    // Years with visits
+    const years = await dbAll(`
+      SELECT DISTINCT strftime('%Y', date) as year 
+      FROM visits 
+      ORDER BY year DESC
+    `);
+    stats.years = years.map(y => y.year);
+    
+    // Visits by year
+    const visitsByYear = await dbAll(`
+      SELECT strftime('%Y', date) as year, COUNT(*) as count
+      FROM visits
+      GROUP BY year
+      ORDER BY year
+    `);
+    stats.visitsByYear = visitsByYear.reduce((acc, item) => {
+      acc[item.year] = item.count;
+      return acc;
+    }, {});
     
     res.json(stats);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch statistics' });
+    console.error('Error fetching stats:', error);
+    res.status(500).json({ error: 'Failed to fetch stats' });
   }
 });
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// ===== IMPORT/EXPORT ENDPOINTS =====
+
+app.post('/api/import', async (req, res) => {
+  try {
+    const { summits, visits } = req.body;
+    
+    if (!summits && !visits) {
+      return res.status(400).json({ error: 'No data to import' });
+    }
+    
+    let importedSummits = 0;
+    let importedVisits = 0;
+    
+    // Import summits
+    if (summits && Array.isArray(summits)) {
+      for (const summit of summits) {
+        try {
+          const createdAt = summit.createdAt || new Date().toISOString();
+          await dbRun(
+            `INSERT OR IGNORE INTO summits (id, name, latitude, longitude, elevation, wikipedia, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [summit.id, summit.name, summit.latitude, summit.longitude, summit.elevation, summit.wikipedia, createdAt, summit.updatedAt]
+          );
+          importedSummits++;
+        } catch (err) {
+          console.error('Error importing summit:', err);
+        }
+      }
+    }
+    
+    // Import visits
+    if (visits && Array.isArray(visits)) {
+      for (const visit of visits) {
+        try {
+          const createdAt = visit.createdAt || new Date().toISOString();
+          await dbRun(
+            'INSERT OR IGNORE INTO visits (id, summit_id, date, notes, created_at) VALUES (?, ?, ?, ?, ?)',
+            [visit.id, visit.summitId, visit.date, visit.notes, createdAt]
+          );
+          importedVisits++;
+        } catch (err) {
+          console.error('Error importing visit:', err);
+        }
+      }
+    }
+    
+    res.json({
+      message: 'Import completed',
+      importedSummits,
+      importedVisits
+    });
+  } catch (error) {
+    console.error('Error importing data:', error);
+    res.status(500).json({ error: 'Failed to import data' });
+  }
+});
+
+app.get('/api/export', async (req, res) => {
+  try {
+    const summits = await dbAll('SELECT * FROM summits');
+    const visits = await dbAll('SELECT * FROM visits');
+    
+    // Format for JSON export (camelCase)
+    const exportData = {
+      summits: summits.map(s => ({
+        id: s.id,
+        name: s.name,
+        latitude: s.latitude,
+        longitude: s.longitude,
+        elevation: s.elevation,
+        wikipedia: s.wikipedia,
+        createdAt: s.created_at,
+        updatedAt: s.updated_at
+      })),
+      visits: visits.map(v => ({
+        id: v.id,
+        summitId: v.summit_id,
+        date: v.date,
+        notes: v.notes,
+        createdAt: v.created_at
+      })),
+      exportedAt: new Date().toISOString()
+    };
+    
+    res.json(exportData);
+  } catch (error) {
+    console.error('Error exporting data:', error);
+    res.status(500).json({ error: 'Failed to export data' });
+  }
 });
 
 // Start server
-async function startServer() {
-  await ensureDataDirectory();
-  
-  app.listen(PORT, () => {
-    console.log(`🚀 Summit Tracker API running on http://localhost:${PORT}`);
-    console.log(`📁 Summits stored in: ${SUMMITS_FILE}`);
-    console.log(`📁 Visits stored in: ${VISITS_FILE}`);
-  });
-}
-
-startServer();
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`API available at http://localhost:${PORT}/api`);
+});

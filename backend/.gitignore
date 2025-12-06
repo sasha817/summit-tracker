@@ -1,0 +1,32 @@
+# Add to backend/.gitignore
+
+# Database files - DO NOT COMMIT
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Backup directory - DO NOT COMMIT
+data/backup/
+
+# Environment variables - DO NOT COMMIT
+.env
+.env.local
+.env.production
+
+# JSON data files (keep for now as backup reference)
+# Uncomment these once you're confident with SQLite:
+# data/summits.json
+# data/visits.json
+
+# Node modules
+node_modules/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
