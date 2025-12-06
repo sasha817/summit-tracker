@@ -4,6 +4,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceDot, Re
 function GpxAnalyzer({ onPeaksDetected, onClose }) {
   const [gpxData, setGpxData] = useState(null);
   const [detectedPeaks, setDetectedPeaks] = useState([]);
+  const [selectedPeakIndices, setSelectedPeakIndices] = useState([]);
   const [loading, setLoading] = useState(false);
   const [settings, setSettings] = useState({
     stopSpeedThreshold: 0.5, // m/s (slower = stopped)
@@ -272,6 +273,9 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
       // Detect peaks using stop-based algorithm
       const peaks = detectStopBasedPeaks(points);
       setDetectedPeaks(peaks);
+      
+      // Select all peaks by default
+      setSelectedPeakIndices(peaks.map((_, idx) => idx));
 
       if (peaks.length === 0) {
         alert('Keine Gipfel erkannt. Versuchen Sie, die Einstellungen anzupassen.');
@@ -283,12 +287,33 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
     }
   };
 
+  const handlePeakToggle = (index) => {
+    setSelectedPeakIndices(prev => {
+      if (prev.includes(index)) {
+        return prev.filter(i => i !== index);
+      } else {
+        return [...prev, index];
+      }
+    });
+  };
+
+  const handleSelectAll = () => {
+    setSelectedPeakIndices(detectedPeaks.map((_, idx) => idx));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedPeakIndices([]);
+  };
+
   const handleConfirmPeaks = () => {
-    if (detectedPeaks.length === 0) {
-      alert('Keine Gipfel zum Hinzufügen');
+    const selectedPeaks = detectedPeaks.filter((_, idx) => selectedPeakIndices.includes(idx));
+    
+    if (selectedPeaks.length === 0) {
+      alert('Keine Gipfel ausgewählt');
       return;
     }
-    onPeaksDetected(detectedPeaks);
+    
+    onPeaksDetected(selectedPeaks);
   };
 
   const prepareChartData = () => {
@@ -427,24 +452,71 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
 
               {detectedPeaks.length > 0 && (
                 <div className="detected-peaks-list">
-                  <h4>Erkannte Gipfel (Stop-basiert, sortiert nach Score):</h4>
-                  {detectedPeaks.map((peak, idx) => (
-                    <div key={idx} className="peak-item">
-                      <div>
-                        <strong>#{idx + 1} - Gipfel (Score: {peak.score.toFixed(1)})</strong>
-                        <div className="peak-details">
-                          🕐 {formatTime(peak.startTime)} - {formatTime(peak.endTime)} ({peak.duration.toFixed(1)} min) |
-                          ⛰️ {Math.round(peak.ele)}m |
-                          📍 {peak.lat.toFixed(5)}, {peak.lon.toFixed(5)}
-                        </div>
-                        <div className="peak-scores">
-                          Dauer: {peak.durationScore.toFixed(0)} | 
-                          Höhe: {peak.elevationScore.toFixed(0)} | 
-                          Prominenz: {peak.prominenceScore.toFixed(0)}
-                        </div>
-                      </div>
+                  <div className="peaks-header">
+                    <h4>Erkannte Gipfel ({detectedPeaks.length})</h4>
+                    <div className="selection-controls">
+                      <button 
+                        className="btn-small btn-secondary"
+                        onClick={handleSelectAll}
+                      >
+                        Alle auswählen
+                      </button>
+                      <button 
+                        className="btn-small btn-secondary"
+                        onClick={handleDeselectAll}
+                      >
+                        Alle abwählen
+                      </button>
                     </div>
-                  ))}
+                  </div>
+                  <div className="peaks-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th width="40"></th>
+                          <th width="40">#</th>
+                          <th>Zeit</th>
+                          <th>Dauer</th>
+                          <th>Höhe</th>
+                          <th>Score</th>
+                          <th>Koordinaten</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detectedPeaks.map((peak, idx) => (
+                          <tr 
+                            key={idx} 
+                            className={selectedPeakIndices.includes(idx) ? 'selected' : ''}
+                            onClick={() => handlePeakToggle(idx)}
+                          >
+                            <td>
+                              <input
+                                type="checkbox"
+                                checked={selectedPeakIndices.includes(idx)}
+                                onChange={() => handlePeakToggle(idx)}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </td>
+                            <td><strong>{idx + 1}</strong></td>
+                            <td>{formatTime(peak.startTime)}</td>
+                            <td>{peak.duration.toFixed(1)} min</td>
+                            <td>{Math.round(peak.ele)} m</td>
+                            <td>
+                              <span className="score-badge">{peak.score.toFixed(1)}</span>
+                              <div className="score-breakdown">
+                                D:{peak.durationScore.toFixed(0)} | 
+                                H:{peak.elevationScore.toFixed(0)} | 
+                                P:{peak.prominenceScore.toFixed(0)}
+                              </div>
+                            </td>
+                            <td className="coords-cell">
+                              {peak.lat.toFixed(5)}, {peak.lon.toFixed(5)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
@@ -452,15 +524,16 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
                 <button 
                   className="btn btn-primary"
                   onClick={handleConfirmPeaks}
-                  disabled={detectedPeaks.length === 0}
+                  disabled={selectedPeakIndices.length === 0}
                 >
-                  Gipfel zu OSM abfragen ({detectedPeaks.length})
+                  Ausgewählte Gipfel zu OSM abfragen ({selectedPeakIndices.length})
                 </button>
                 <button 
                   className="btn btn-secondary"
                   onClick={() => {
                     setGpxData(null);
                     setDetectedPeaks([]);
+                    setSelectedPeakIndices([]);
                   }}
                 >
                   Neue Datei

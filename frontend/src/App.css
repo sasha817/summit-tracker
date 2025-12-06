@@ -835,21 +835,123 @@ body {
   padding: 16px;
 }
 
-.detected-peaks-list h4 {
-  margin-bottom: 12px;
+.peaks-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.peaks-header h4 {
+  margin: 0;
   color: #2d3748;
 }
 
-.peak-item {
-  background: white;
-  padding: 12px;
-  border-radius: 6px;
-  margin-bottom: 8px;
-  border-left: 4px solid #667eea;
+.selection-controls {
+  display: flex;
+  gap: 8px;
 }
 
-.peak-item:last-child {
-  margin-bottom: 0;
+.peaks-table {
+  overflow-x: auto;
+}
+
+.peaks-table table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.peaks-table thead {
+  background: #e2e8f0;
+}
+
+.peaks-table th {
+  padding: 12px 8px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+  color: #2d3748;
+  border-bottom: 2px solid #cbd5e0;
+}
+
+.peaks-table tbody tr {
+  cursor: pointer;
+  transition: background 0.2s;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.peaks-table tbody tr:hover {
+  background: #f7fafc;
+}
+
+.peaks-table tbody tr.selected {
+  background: #e6f2ff;
+}
+
+.peaks-table td {
+  padding: 12px 8px;
+  font-size: 13px;
+  color: #4a5568;
+}
+
+.peaks-table td input[type="checkbox"] {
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+}
+
+.score-badge {
+  display: inline-block;
+  background: #667eea;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.score-breakdown {
+  font-size: 11px;
+  color: #718096;
+  margin-top: 4px;
+}
+
+.coords-cell {
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.chart-legend {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: #4a5568;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid white;
+}
+
+.legend-dot.selected {
+  background: #e53e3e;
+}
+
+.legend-dot.unselected {
+  background: #cbd5e0;
 }
 
 .peak-details {
