@@ -135,6 +135,35 @@ function App() {
 
   const filteredSummits = getFilteredSummits();
 
+  // Helper function to find existing summit by coordinates
+  const findExistingSummitByCoordinates = (latitude, longitude, tolerance = 100) => {
+    return summits.find(existing => {
+      const distance = calculateDistance(
+        existing.latitude,
+        existing.longitude,
+        latitude,
+        longitude
+      );
+      return distance < tolerance; // Within tolerance meters = same summit
+    });
+  };
+
+  // Helper function to calculate distance between two coordinates
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371e3; // Earth radius in meters
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c; // Distance in meters
+  };
+
   const handleAddSummit = async (summitData) => {
     try {
       if (formMode === 'edit-summit') {
@@ -249,6 +278,9 @@ function App() {
   const handlePeaksDetected = async (peaks) => {
     setShowGpxAnalyzer(false);
     
+    // Get the date from the GPX track (first point's timestamp)
+    const gpxDate = peaks[0]?.startTime ? peaks[0].startTime.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+    
     // Query OSM for each detected peak
     const peaksWithOsmData = [];
     const peaksWithoutOsmData = [];
@@ -281,8 +313,12 @@ function App() {
               longitude: osmPeak.lon,
               elevation: osmPeak.tags?.ele || peak.ele,
               wikipedia: osmPeak.tags?.wikipedia || null,
+              visitDate: peak.startTime ? peak.startTime.toISOString().split('T')[0] : gpxDate,
+              visitTime: peak.startTime,
+              duration: peak.duration,
+              score: peak.score,
               fromGpx: true,
-              gpxData: peak // Keep original GPX data for reference
+              gpxData: peak
             });
           } else {
             // No OSM data found
@@ -297,10 +333,32 @@ function App() {
       }
     }
     
+    // Log all detected summits with visit data
+    console.log('=== GPX Analysis Results ===');
+    console.log('Track Date:', gpxDate);
+    console.log('Summits with OSM data:', peaksWithOsmData.length);
+    console.log('Summits without OSM data:', peaksWithoutOsmData.length);
+    console.log('\n--- Summits to Add ---');
+    peaksWithOsmData.forEach((peak, i) => {
+      console.log(`${i + 1}. ${peak.name}`);
+      console.log(`   Date: ${peak.visitDate}`);
+      console.log(`   Time: ${peak.visitTime?.toLocaleTimeString('de-DE')}`);
+      console.log(`   Duration: ${peak.duration.toFixed(1)} min`);
+      console.log(`   Coordinates: ${peak.latitude.toFixed(6)}, ${peak.longitude.toFixed(6)}`);
+      console.log(`   Elevation: ${peak.elevation}m`);
+      console.log(`   Score: ${peak.score.toFixed(1)}`);
+    });
+    
     // Log peaks without OSM data for future download feature
     if (peaksWithoutOsmData.length > 0) {
-      console.log('Peaks without OSM data (for download):', peaksWithoutOsmData);
-      alert(`${peaksWithoutOsmData.length} Gipfel ohne OSM-Daten gefunden. Diese werden übersprungen.\n(Funktion zum Download der Daten kommt bald)`);
+      console.log('\n--- Peaks without OSM data (skipped) ---');
+      peaksWithoutOsmData.forEach((peak, i) => {
+        console.log(`${i + 1}. Unknown Peak`);
+        console.log(`   Coordinates: ${peak.lat.toFixed(6)}, ${peak.lon.toFixed(6)}`);
+        console.log(`   Elevation: ${peak.ele}m`);
+        console.log(`   Score: ${peak.score.toFixed(1)}`);
+      });
+      alert(`${peaksWithoutOsmData.length} Gipfel ohne OSM-Daten gefunden. Diese werden übersprungen.\n(Details in der Browser-Konsole)`);
     }
     
     if (peaksWithOsmData.length === 0) {
@@ -310,14 +368,84 @@ function App() {
     
     // Show summary and ask for confirmation
     const message = `${peaksWithOsmData.length} Gipfel mit OSM-Daten gefunden:\n\n` +
-      peaksWithOsmData.map((p, i) => `${i + 1}. ${p.name} (${p.elevation}m)`).join('\n') +
-      '\n\nMöchten Sie diese Gipfel hinzufügen? (Besuchsdatum wird noch abgefragt)';
+      peaksWithOsmData.map((p, i) => `${i + 1}. ${p.name} (${p.elevation}m) - ${p.visitDate}`).join('\n') +
+      '\n\nMöchten Sie diese Gipfel hinzufügen?';
     
     if (window.confirm(message)) {
-      // TODO: Open form for each peak to add visit date
-      alert('Funktion zum Hinzufügen der Gipfel kommt im nächsten Schritt!');
-      console.log('Peaks to add:', peaksWithOsmData);
+      // Check for duplicates and add summits/visits
+      await addPeaksFromGpx(peaksWithOsmData);
     }
+  };
+
+  // Function to add peaks from GPX (checks for duplicates)
+  const addPeaksFromGpx = async (peaks) => {
+    let newSummitsCount = 0;
+    let newVisitsCount = 0;
+    let errors = [];
+
+    for (const peak of peaks) {
+      try {
+        // Check if summit already exists
+        const existingSummit = findExistingSummitByCoordinates(
+          peak.latitude,
+          peak.longitude,
+          100 // 100m tolerance
+        );
+
+        if (existingSummit) {
+          // Summit exists - add a new visit
+          console.log(`✓ Summit exists: ${existingSummit.name} (ID: ${existingSummit.id})`);
+          console.log(`  Adding visit for ${peak.visitDate}`);
+          
+          await visitAPI.create({
+            summitId: existingSummit.id,
+            date: peak.visitDate,
+            notes: `Aus GPX-Track importiert (Dauer: ${peak.duration.toFixed(1)} min, Score: ${peak.score.toFixed(1)})`
+          });
+          
+          newVisitsCount++;
+        } else {
+          // Summit is new - create summit with visit
+          console.log(`+ New summit: ${peak.name}`);
+          console.log(`  Creating with visit for ${peak.visitDate}`);
+          
+          await summitAPI.createWithVisit({
+            name: peak.name,
+            latitude: peak.latitude,
+            longitude: peak.longitude,
+            elevation: peak.elevation,
+            wikipedia: peak.wikipedia,
+            date: peak.visitDate,
+            notes: `Aus GPX-Track importiert (Dauer: ${peak.duration.toFixed(1)} min, Score: ${peak.score.toFixed(1)})`
+          });
+          
+          newSummitsCount++;
+        }
+      } catch (err) {
+        console.error(`Error adding peak ${peak.name}:`, err);
+        errors.push(`${peak.name}: ${err.message}`);
+      }
+    }
+
+    // Reload data
+    await loadSummits();
+    await loadAllVisits();
+
+    // Show summary
+    let summary = `GPX-Import abgeschlossen!\n\n`;
+    summary += `Neue Gipfel: ${newSummitsCount}\n`;
+    summary += `Neue Besuche: ${newVisitsCount}\n`;
+    
+    if (errors.length > 0) {
+      summary += `\nFehler: ${errors.length}\n`;
+      summary += errors.join('\n');
+    }
+
+    alert(summary);
+    console.log('=== Import Summary ===');
+    console.log(`New summits: ${newSummitsCount}`);
+    console.log(`New visits: ${newVisitsCount}`);
+    console.log(`Errors: ${errors.length}`);
   };
 
   if (loading) {
