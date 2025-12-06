@@ -799,6 +799,37 @@ body {
   margin: 0;
 }
 
+.algorithm-info {
+  background-color: #e8f5e9;
+  padding: 16px;
+  border-radius: 8px;
+  margin: 20px 0;
+  border-left: 4px solid #4CAF50;
+}
+
+.algorithm-info h4 {
+  color: #2d3748;
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+.algorithm-info p {
+  color: #4a5568;
+  margin-bottom: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.elevation-profile-plotly {
+  margin: 24px 0;
+}
+
+.elevation-profile-plotly h4 {
+  margin-bottom: 12px;
+  color: #2d3748;
+}
+
+
 .gpx-results {
   display: flex;
   flex-direction: column;
@@ -825,9 +856,32 @@ body {
 }
 
 .elevation-profile h4 {
-  margin-bottom: 16px;
+  margin-bottom: 8px;
   color: #2d3748;
 }
+
+.peak-legend {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: #4a5568;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
 
 .detected-peaks-list {
   background: #f7fafc;
@@ -887,8 +941,18 @@ body {
   background: #f7fafc;
 }
 
+.peaks-table tbody tr.hovered {
+  background: #fef3c7 !important;
+  box-shadow: inset 0 0 0 2px #fbbf24;
+}
+
 .peaks-table tbody tr.selected {
   background: #e6f2ff;
+}
+
+.peaks-table tbody tr.selected.hovered {
+  background: #bfdbfe !important;
+  box-shadow: inset 0 0 0 2px #3b82f6;
 }
 
 .peaks-table td {
@@ -905,13 +969,24 @@ body {
 
 .score-badge {
   display: inline-block;
-  background: #667eea;
-  color: white;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-weight: bold;
   font-size: 13px;
 }
+
+.score-badge.score-high {
+  color: #4CAF50;
+}
+
+.score-badge.score-medium {
+  color: #FF9800;
+}
+
+.score-badge.score-low {
+  color: #999;
+}
+
 
 .score-breakdown {
   font-size: 11px;

@@ -1,19 +1,21 @@
-import React, { useState } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceDot, ResponsiveContainer } from 'recharts';
+import React, { useState, useEffect, useRef } from 'react';
+import Plotly from 'plotly.js-dist-min';
 
 function GpxAnalyzer({ onPeaksDetected, onClose }) {
   const [gpxData, setGpxData] = useState(null);
   const [detectedPeaks, setDetectedPeaks] = useState([]);
   const [selectedPeakIndices, setSelectedPeakIndices] = useState([]);
+  const [hoveredPeakIndex, setHoveredPeakIndex] = useState(null);
   const [loading, setLoading] = useState(false);
+  const plotRef = useRef(null);
   const [settings, setSettings] = useState({
-    stopSpeedThreshold: 0.5, // m/s (slower = stopped)
-    clusterDistance: 50, // meters (group nearby stops)
-    clusterTimeGap: 15, // minutes (group temporally close stops)
-    minStopDuration: 3, // minutes (filter short stops)
-    prominenceRadius: 100, // meters (spatial context)
-    prominenceTimeWindow: 10, // minutes (temporal context)
-    elevationPercentile: 80 // top 20% of track
+    stopSpeedThreshold: 0.5,
+    clusterDistance: 50,
+    clusterTimeGap: 15,
+    minStopDuration: 3,
+    prominenceRadius: 100,
+    prominenceTimeWindow: 10,
+    elevationPercentile: 80
   });
 
   const parseGPX = async (file) => {
@@ -65,9 +67,8 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
             totalDistance += dist;
             points[i].distance = totalDistance;
 
-            // Calculate speed (m/s)
             if (points[i].time && points[i - 1].time) {
-              const timeDiff = (points[i].time - points[i - 1].time) / 1000; // seconds
+              const timeDiff = (points[i].time - points[i - 1].time) / 1000;
               points[i].speed = timeDiff > 0 ? dist / timeDiff : 0;
             }
           }
@@ -134,7 +135,6 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
       }
     }
 
-    // Add last stop if exists
     if (currentStop && currentStop.points.length >= 2) {
       stopSegments.push({
         ...currentStop,
@@ -171,7 +171,7 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
           stopSegments[j].avgLon
         );
 
-        const timeDiff = Math.abs(stopSegments[j].startTime - stopSegments[i].endTime) / (1000 * 60); // minutes
+        const timeDiff = Math.abs(stopSegments[j].startTime - stopSegments[i].endTime) / (1000 * 60);
 
         if (dist <= clusterDistance || timeDiff <= clusterTimeGap) {
           cluster.segments.push(stopSegments[j]);
@@ -180,10 +180,9 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
         }
       }
 
-      // Calculate cluster properties
       const allPoints = cluster.segments.flatMap(s => s.points);
       const totalDuration = cluster.segments.reduce((sum, s) => {
-        return sum + (s.endTime - s.startTime) / (1000 * 60); // minutes
+        return sum + (s.endTime - s.startTime) / (1000 * 60);
       }, 0);
 
       if (totalDuration >= minStopDuration) {
@@ -199,60 +198,49 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
       }
     }
 
-    // Step 3: Score each cluster
-    const elevations = points.filter(p => p.ele).map(p => p.ele);
-    elevations.sort((a, b) => a - b);
-    const elevationThreshold = elevations[Math.floor(elevations.length * elevationPercentile / 100)];
+    // Step 3: Calculate prominence and score
+    const elevations = points.map(p => p.ele || 0);
+    const sortedElevations = [...elevations].sort((a, b) => a - b);
+    const elevationThreshold = sortedElevations[Math.floor(sortedElevations.length * elevationPercentile / 100)];
 
     clusters.forEach(cluster => {
-      // Duration score (max 30 points)
-      const durationScore = Math.min(cluster.duration, 30);
-
-      // Elevation percentile score (20 points if in top percentile)
-      const elevationScore = cluster.maxEle >= elevationThreshold ? 20 : 0;
-
-      // Prominence score (max 50 points)
-      let prominenceScore = 0;
-      const nearbyPoints = points.filter(p => {
-        if (!p.ele || !p.time) return false;
-        
+      const centerIdx = Math.floor((cluster.segments[0].startIndex + cluster.segments[cluster.segments.length - 1].endIndex) / 2);
+      
+      const spatialNeighbors = points.filter(p => {
         const dist = calculateDistance(cluster.avgLat, cluster.avgLon, p.lat, p.lon);
-        const timeDiff = Math.abs(p.time - cluster.startTime) / (1000 * 60); // minutes
-        
-        return dist <= prominenceRadius && timeDiff <= prominenceTimeWindow;
+        return dist <= prominenceRadius && p.index !== centerIdx;
       });
 
-      if (nearbyPoints.length > 0) {
-        const nearbyElevations = nearbyPoints.map(p => p.ele);
-        const minNearby = Math.min(...nearbyElevations);
-        const elevationDiff = cluster.maxEle - minNearby;
-        prominenceScore = Math.min(elevationDiff, 50);
-      }
+      const temporalNeighbors = points.filter(p => {
+        if (!p.time || !cluster.startTime) return false;
+        const timeDiff = Math.abs(p.time - cluster.startTime) / (1000 * 60);
+        return timeDiff <= prominenceTimeWindow && p.index !== centerIdx;
+      });
 
-      cluster.score = durationScore + elevationScore + prominenceScore;
+      const combinedNeighbors = [...new Set([...spatialNeighbors, ...temporalNeighbors])];
+      const neighborElevations = combinedNeighbors.map(p => p.ele || 0);
+      const avgNeighborEle = neighborElevations.length > 0
+        ? neighborElevations.reduce((sum, e) => sum + e, 0) / neighborElevations.length
+        : cluster.avgEle;
+
+      cluster.prominence = cluster.maxEle - avgNeighborEle;
+      cluster.index = centerIdx;
+
+      const durationScore = Math.min(cluster.duration / 10, 1) * 100;
+      const elevationScore = cluster.avgEle >= elevationThreshold ? 100 : 50;
+      const prominenceScore = Math.min(cluster.prominence / 50, 1) * 100;
+
+      cluster.score = (durationScore + elevationScore + prominenceScore) / 3;
       cluster.durationScore = durationScore;
       cluster.elevationScore = elevationScore;
       cluster.prominenceScore = prominenceScore;
+
+      cluster.lat = cluster.avgLat;
+      cluster.lon = cluster.avgLon;
+      cluster.ele = cluster.maxEle;
     });
 
-    // Step 4: Filter and rank
-    const rankedClusters = clusters
-      .filter(c => c.duration >= minStopDuration)
-      .sort((a, b) => b.score - a.score);
-
-    return rankedClusters.map(cluster => ({
-      lat: cluster.avgLat,
-      lon: cluster.avgLon,
-      ele: cluster.maxEle,
-      duration: cluster.duration,
-      startTime: cluster.startTime,
-      endTime: cluster.endTime,
-      score: cluster.score,
-      durationScore: cluster.durationScore,
-      elevationScore: cluster.elevationScore,
-      prominenceScore: cluster.prominenceScore,
-      index: cluster.segments[0].startIndex
-    }));
+    return clusters.sort((a, b) => b.score - a.score);
   };
 
   const handleFileUpload = async (event) => {
@@ -262,39 +250,127 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
     setLoading(true);
     try {
       const points = await parseGPX(file);
-      
-      if (points.length === 0) {
-        alert('Keine Trackpunkte in der GPX-Datei gefunden');
-        return;
-      }
-
       setGpxData(points);
       
-      // Detect peaks using stop-based algorithm
       const peaks = detectStopBasedPeaks(points);
       setDetectedPeaks(peaks);
-      
-      // Select all peaks by default
       setSelectedPeakIndices(peaks.map((_, idx) => idx));
-
-      if (peaks.length === 0) {
-        alert('Keine Gipfel erkannt. Versuchen Sie, die Einstellungen anzupassen.');
-      }
     } catch (error) {
-      alert('Fehler beim Verarbeiten der GPX-Datei: ' + error.message);
+      alert(`Fehler: ${error.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const handlePeakToggle = (index) => {
-    setSelectedPeakIndices(prev => {
-      if (prev.includes(index)) {
-        return prev.filter(i => i !== index);
-      } else {
-        return [...prev, index];
+  // Create Plotly chart
+  useEffect(() => {
+    if (!gpxData || !plotRef.current) return;
+
+    const times = gpxData.map(p => p.time ? p.time.toLocaleTimeString('de-DE') : '');
+    const elevations = gpxData.map(p => p.ele || 0);
+    const distances = gpxData.map(p => p.distance / 1000); // km
+
+    // Elevation profile trace
+    const elevationTrace = {
+      x: distances,
+      y: elevations,
+      type: 'scatter',
+      mode: 'lines',
+      name: 'Höhenprofil',
+      line: {
+        color: '#667eea',
+        width: 2
+      },
+      hovertemplate: 'Distanz: %{x:.2f} km<br>Höhe: %{y:.0f} m<extra></extra>'
+    };
+
+    // Summit markers
+    const summitMarkers = {
+      x: detectedPeaks.map(peak => gpxData[peak.index]?.distance / 1000 || 0),
+      y: detectedPeaks.map(peak => peak.ele),
+      type: 'scatter',
+      mode: 'markers+text',
+      name: 'Erkannte Gipfel',
+      marker: {
+        size: detectedPeaks.map((peak, idx) => 
+          hoveredPeakIndex === idx ? 18 : selectedPeakIndices.includes(idx) ? 14 : 10
+        ),
+        color: detectedPeaks.map((peak, idx) => {
+          if (hoveredPeakIndex === idx) return '#fbbf24';
+          if (selectedPeakIndices.includes(idx)) return '#48bb78';
+          return '#e53e3e';
+        }),
+        line: {
+          color: 'white',
+          width: 2
+        }
+      },
+      text: detectedPeaks.map((_, idx) => `#${idx + 1}`),
+      textposition: 'top center',
+      textfont: {
+        size: 12,
+        color: 'black',
+        family: 'Arial',
+        weight: 'bold'
+      },
+      hovertemplate: detectedPeaks.map((peak, idx) => 
+        `Gipfel #${idx + 1}<br>` +
+        `Höhe: ${Math.round(peak.ele)} m<br>` +
+        `Dauer: ${peak.duration.toFixed(1)} min<br>` +
+        `Score: ${peak.score.toFixed(1)}<extra></extra>`
+      )
+    };
+
+    const minEle = Math.min(...elevations);
+    const maxEle = Math.max(...elevations);
+
+    const layout = {
+      xaxis: {
+        title: 'Distanz (km)',
+        gridcolor: '#e0e0e0'
+      },
+      yaxis: {
+        title: 'Höhe (m)',
+        gridcolor: '#e0e0e0',
+        range: [minEle - 20, maxEle + 50]
+      },
+      hovermode: 'closest',
+      plot_bgcolor: '#fafafa',
+      paper_bgcolor: 'white',
+      showlegend: true,
+      legend: {
+        x: 0.02,
+        y: 0.98,
+        bgcolor: 'rgba(255, 255, 255, 0.8)'
+      },
+      margin: { t: 20, r: 20, b: 50, l: 60 }
+    };
+
+    const config = {
+      responsive: true,
+      displayModeBar: true,
+      modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+      displaylogo: false
+    };
+
+    Plotly.newPlot(plotRef.current, [elevationTrace, summitMarkers], layout, config);
+
+    // Add click handler for markers
+    plotRef.current.on('plotly_click', (data) => {
+      if (data.points[0].curveNumber === 1) { // Summit markers trace
+        const pointIndex = data.points[0].pointIndex;
+        handlePeakToggle(pointIndex);
       }
     });
+
+  }, [gpxData, detectedPeaks, selectedPeakIndices, hoveredPeakIndex]);
+
+  const handlePeakToggle = (idx) => {
+    setSelectedPeakIndices(prev => 
+      prev.includes(idx) 
+        ? prev.filter(i => i !== idx)
+        : [...prev, idx]
+    );
   };
 
   const handleSelectAll = () => {
@@ -306,49 +382,36 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
   };
 
   const handleConfirmPeaks = () => {
-    const selectedPeaks = detectedPeaks.filter((_, idx) => selectedPeakIndices.includes(idx));
-    
-    if (selectedPeaks.length === 0) {
-      alert('Keine Gipfel ausgewählt');
-      return;
-    }
-    
+    const selectedPeaks = selectedPeakIndices.map(idx => detectedPeaks[idx]);
     onPeaksDetected(selectedPeaks);
   };
 
-  const prepareChartData = () => {
-    if (!gpxData) return [];
-    
-    return gpxData
-      .filter(p => p.ele !== null)
-      .map(p => ({
-        distance: (p.distance / 1000).toFixed(2),
-        elevation: Math.round(p.ele),
-        isPeak: detectedPeaks.some(peak => Math.abs(peak.index - p.index) < 10)
-      }));
-  };
-
-  const formatTime = (date) => {
-    if (!date) return '';
-    return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  const formatTime = (time) => {
+    if (!time) return 'N/A';
+    return time.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
   };
 
   return (
     <div className="gpx-analyzer-overlay">
       <div className="gpx-analyzer-modal">
         <div className="gpx-analyzer-header">
-          <h3>GPX-Track analysieren (Stop-basiert)</h3>
-          <button className="btn-close" onClick={onClose}>✕</button>
+          <h3>🏔️ GPX Gipfel-Analyse</h3>
+          <button className="close-button" onClick={onClose}>×</button>
         </div>
 
         <div className="gpx-analyzer-content">
           {!gpxData ? (
             <div className="gpx-upload-section">
-              <p>Laden Sie eine GPX-Datei hoch. Der Algorithmus erkennt Gipfel basierend auf Stopps (wo Sie Zeit verbracht haben).</p>
+              <p>Lade eine GPX-Datei hoch, um automatisch Gipfel zu erkennen.</p>
               
+              <div className="algorithm-info">
+                <h4>Stop-basierte Gipfelerkennung</h4>
+                <p><strong>Methode:</strong> Identifiziert Gipfel durch Analyse von Stop-Clustern (Geschwindigkeit &lt; 0.5 m/s) kombiniert mit Höhenprominenz.</p>
+              </div>
+
               <div className="settings-grid">
                 <div className="setting-item">
-                  <label>Stop-Geschwindigkeit (m/s)</label>
+                  <label>Stopp-Geschwindigkeit (m/s)</label>
                   <input
                     type="number"
                     step="0.1"
@@ -413,41 +476,23 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
                 )}
               </div>
 
-              <div className="elevation-profile">
-                <h4>Höhenprofil (Rote Punkte = Erkannte Gipfel)</h4>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={prepareChartData()}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis 
-                      dataKey="distance" 
-                      label={{ value: 'Distanz (km)', position: 'insideBottom', offset: -5 }}
-                    />
-                    <YAxis 
-                      domain={['dataMin - 20', 'dataMax + 20']}
-                      label={{ value: 'Höhe (m)', angle: -90, position: 'insideLeft' }}
-                    />
-                    <Tooltip />
-                    <Line 
-                      type="monotone" 
-                      dataKey="elevation" 
-                      stroke="#667eea" 
-                      strokeWidth={2}
-                      dot={false}
-                    />
-                    {detectedPeaks.map((peak, idx) => (
-                      <ReferenceDot
-                        key={idx}
-                        x={(gpxData[peak.index]?.distance / 1000).toFixed(2)}
-                        y={Math.round(peak.ele)}
-                        r={8}
-                        fill="#e53e3e"
-                        stroke="#fff"
-                        strokeWidth={2}
-                        label={{ value: `#${idx + 1}`, position: 'top', fill: '#2d3748', fontSize: 12, fontWeight: 'bold' }}
-                      />
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
+              <div className="elevation-profile-plotly">
+                <h4>Höhenprofil mit erkannten Gipfeln</h4>
+                <div className="peak-legend">
+                  <span className="legend-item">
+                    <span className="legend-dot" style={{ backgroundColor: '#e53e3e' }}></span>
+                    Nicht ausgewählt
+                  </span>
+                  <span className="legend-item">
+                    <span className="legend-dot" style={{ backgroundColor: '#48bb78' }}></span>
+                    Ausgewählt
+                  </span>
+                  <span className="legend-item">
+                    <span className="legend-dot" style={{ backgroundColor: '#fbbf24' }}></span>
+                    Hervorgehoben
+                  </span>
+                </div>
+                <div ref={plotRef} style={{ width: '100%', height: '300px' }}></div>
               </div>
 
               {detectedPeaks.length > 0 && (
@@ -478,42 +523,50 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
                           <th>Zeit</th>
                           <th>Dauer</th>
                           <th>Höhe</th>
+                          <th>Prominenz</th>
                           <th>Score</th>
                           <th>Koordinaten</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {detectedPeaks.map((peak, idx) => (
-                          <tr 
-                            key={idx} 
-                            className={selectedPeakIndices.includes(idx) ? 'selected' : ''}
-                            onClick={() => handlePeakToggle(idx)}
-                          >
-                            <td>
-                              <input
-                                type="checkbox"
-                                checked={selectedPeakIndices.includes(idx)}
-                                onChange={() => handlePeakToggle(idx)}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                            </td>
-                            <td><strong>{idx + 1}</strong></td>
-                            <td>{formatTime(peak.startTime)}</td>
-                            <td>{peak.duration.toFixed(1)} min</td>
-                            <td>{Math.round(peak.ele)} m</td>
-                            <td>
-                              <span className="score-badge">{peak.score.toFixed(1)}</span>
-                              <div className="score-breakdown">
-                                D:{peak.durationScore.toFixed(0)} | 
-                                H:{peak.elevationScore.toFixed(0)} | 
-                                P:{peak.prominenceScore.toFixed(0)}
-                              </div>
-                            </td>
-                            <td className="coords-cell">
-                              {peak.lat.toFixed(5)}, {peak.lon.toFixed(5)}
-                            </td>
-                          </tr>
-                        ))}
+                        {detectedPeaks.map((peak, idx) => {
+                          const scoreClass = peak.score > 60 ? 'score-high' : 
+                                           peak.score > 30 ? 'score-medium' : 'score-low';
+                          return (
+                            <tr 
+                              key={idx} 
+                              className={`${selectedPeakIndices.includes(idx) ? 'selected' : ''} ${hoveredPeakIndex === idx ? 'hovered' : ''}`}
+                              onClick={() => handlePeakToggle(idx)}
+                              onMouseEnter={() => setHoveredPeakIndex(idx)}
+                              onMouseLeave={() => setHoveredPeakIndex(null)}
+                            >
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedPeakIndices.includes(idx)}
+                                  onChange={() => handlePeakToggle(idx)}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </td>
+                              <td><strong>{idx + 1}</strong></td>
+                              <td>{formatTime(peak.startTime)}</td>
+                              <td>{peak.duration.toFixed(1)} min</td>
+                              <td>{Math.round(peak.ele)} m</td>
+                              <td>{peak.prominence ? peak.prominence.toFixed(1) : 'N/A'} m</td>
+                              <td>
+                                <span className={`score-badge ${scoreClass}`}>{peak.score.toFixed(1)}</span>
+                                <div className="score-breakdown">
+                                  D:{peak.durationScore.toFixed(0)} | 
+                                  H:{peak.elevationScore.toFixed(0)} | 
+                                  P:{peak.prominenceScore.toFixed(0)}
+                                </div>
+                              </td>
+                              <td className="coords-cell">
+                                {peak.lat.toFixed(5)}, {peak.lon.toFixed(5)}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

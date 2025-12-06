@@ -35,3 +35,6 @@ coverage/
 
 # Production
 /build
+
+# Other
+next-steps.*
