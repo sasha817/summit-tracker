@@ -1,5 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Plotly from 'plotly.js-dist-min';
+import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Fix for default marker icons in React
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: require('leaflet/dist/images/marker-icon-2x.png'),
+  iconUrl: require('leaflet/dist/images/marker-icon.png'),
+  shadowUrl: require('leaflet/dist/images/marker-shadow.png'),
+});
 
 function GpxAnalyzer({ onPeaksDetected, onClose }) {
   const [gpxData, setGpxData] = useState(null);
@@ -8,11 +19,14 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
   const [hoveredPeakIndex, setHoveredPeakIndex] = useState(null);
   const [loading, setLoading] = useState(false);
   const plotRef = useRef(null);
+  const mapRef = useRef(null);
+  const [mapCenter, setMapCenter] = useState([47.2692, 11.4041]); // Default: Innsbruck area
+  const [mapZoom, setMapZoom] = useState(13);
   const [settings, setSettings] = useState({
     stopSpeedThreshold: 0.5,
     clusterDistance: 50,
-    clusterTimeGap: 15,
-    minStopDuration: 3,
+    clusterTimeGap: 5,  // Reduced from 15 - tighter temporal clustering
+    minStopDuration: 1,  // Reduced from 3 - catch shorter summit stops
     prominenceRadius: 100,
     prominenceTimeWindow: 10,
     elevationPercentile: 80
@@ -255,6 +269,16 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
       const peaks = detectStopBasedPeaks(points);
       setDetectedPeaks(peaks);
       setSelectedPeakIndices(peaks.map((_, idx) => idx));
+      
+      // Set map center to the middle of the track
+      if (points.length > 0) {
+        const lats = points.map(p => p.lat);
+        const lons = points.map(p => p.lon);
+        const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+        const centerLon = (Math.min(...lons) + Math.max(...lons)) / 2;
+        setMapCenter([centerLat, centerLon]);
+        setMapZoom(12);
+      }
     } catch (error) {
       alert(`Fehler: ${error.message}`);
     } finally {
@@ -365,6 +389,14 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
 
   }, [gpxData, detectedPeaks, selectedPeakIndices, hoveredPeakIndex]);
 
+  // Update map when hovering peaks
+  useEffect(() => {
+    if (hoveredPeakIndex !== null && detectedPeaks[hoveredPeakIndex] && mapRef.current) {
+      const peak = detectedPeaks[hoveredPeakIndex];
+      mapRef.current.setView([peak.lat, peak.lon], 15, { animate: true });
+    }
+  }, [hoveredPeakIndex, detectedPeaks]);
+
   const handlePeakToggle = (idx) => {
     setSelectedPeakIndices(prev => 
       prev.includes(idx) 
@@ -442,7 +474,18 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
                     min="1"
                     max="30"
                   />
-                  <small>Filtert kurze Stopps aus</small>
+                  <small>Standard: 1 min (optimiert für kurze Gipfelstopps)</small>
+                </div>
+                <div className="setting-item">
+                  <label>Zeit-Cluster (min)</label>
+                  <input
+                    type="number"
+                    value={settings.clusterTimeGap}
+                    onChange={(e) => setSettings({...settings, clusterTimeGap: parseInt(e.target.value)})}
+                    min="1"
+                    max="30"
+                  />
+                  <small>Standard: 5 min (gruppiert nahe Stopps zeitlich)</small>
                 </div>
               </div>
 
@@ -476,102 +519,146 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
                 )}
               </div>
 
-              <div className="elevation-profile-plotly">
-                <h4>Höhenprofil mit erkannten Gipfeln</h4>
-                <div className="peak-legend">
-                  <span className="legend-item">
-                    <span className="legend-dot" style={{ backgroundColor: '#e53e3e' }}></span>
-                    Nicht ausgewählt
-                  </span>
-                  <span className="legend-item">
-                    <span className="legend-dot" style={{ backgroundColor: '#48bb78' }}></span>
-                    Ausgewählt
-                  </span>
-                  <span className="legend-item">
-                    <span className="legend-dot" style={{ backgroundColor: '#fbbf24' }}></span>
-                    Hervorgehoben
-                  </span>
+              {/* Two-column layout */}
+              <div className="gpx-two-column-layout">
+                {/* LEFT COLUMN: Summit table */}
+                <div className="gpx-left-column">
+                  {detectedPeaks.length > 0 && (
+                    <div className="detected-peaks-list-compact">
+                      <div className="peaks-header">
+                        <h4>Erkannte Gipfel ({detectedPeaks.length})</h4>
+                        <div className="selection-controls">
+                          <button 
+                            className="btn-small btn-secondary"
+                            onClick={handleSelectAll}
+                          >
+                            Alle
+                          </button>
+                          <button 
+                            className="btn-small btn-secondary"
+                            onClick={handleDeselectAll}
+                          >
+                            Keine
+                          </button>
+                        </div>
+                      </div>
+                      <div className="peaks-table-compact">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th width="30"></th>
+                              <th width="30">#</th>
+                              <th>Zeit</th>
+                              <th>Höhe</th>
+                              <th>Score</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {detectedPeaks.map((peak, idx) => {
+                              const scoreClass = peak.score > 60 ? 'score-high' : 
+                                               peak.score > 30 ? 'score-medium' : 'score-low';
+                              return (
+                                <tr 
+                                  key={idx} 
+                                  className={`${selectedPeakIndices.includes(idx) ? 'selected' : ''} ${hoveredPeakIndex === idx ? 'hovered' : ''}`}
+                                  onClick={() => handlePeakToggle(idx)}
+                                  onMouseEnter={() => setHoveredPeakIndex(idx)}
+                                  onMouseLeave={() => setHoveredPeakIndex(null)}
+                                >
+                                  <td>
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedPeakIndices.includes(idx)}
+                                      onChange={() => handlePeakToggle(idx)}
+                                      onClick={(e) => e.stopPropagation()}
+                                    />
+                                  </td>
+                                  <td><strong>{idx + 1}</strong></td>
+                                  <td>{formatTime(peak.startTime)}</td>
+                                  <td>{Math.round(peak.ele)} m</td>
+                                  <td>
+                                    <span className={`score-badge ${scoreClass}`}>{peak.score.toFixed(0)}</span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div ref={plotRef} style={{ width: '100%', height: '300px' }}></div>
-              </div>
 
-              {detectedPeaks.length > 0 && (
-                <div className="detected-peaks-list">
-                  <div className="peaks-header">
-                    <h4>Erkannte Gipfel ({detectedPeaks.length})</h4>
-                    <div className="selection-controls">
-                      <button 
-                        className="btn-small btn-secondary"
-                        onClick={handleSelectAll}
+                {/* RIGHT COLUMN: Chart and Map */}
+                <div className="gpx-right-column">
+                  {/* Elevation Profile */}
+                  <div className="elevation-profile-plotly">
+                    <h4>Höhenprofil</h4>
+                    <div className="peak-legend">
+                      <span className="legend-item">
+                        <span className="legend-dot" style={{ backgroundColor: '#e53e3e' }}></span>
+                        Nicht ausgewählt
+                      </span>
+                      <span className="legend-item">
+                        <span className="legend-dot" style={{ backgroundColor: '#48bb78' }}></span>
+                        Ausgewählt
+                      </span>
+                      <span className="legend-item">
+                        <span className="legend-dot" style={{ backgroundColor: '#fbbf24' }}></span>
+                        Hervorgehoben
+                      </span>
+                    </div>
+                    <div ref={plotRef} style={{ width: '100%', height: '250px' }}></div>
+                  </div>
+
+                  {/* Map Preview */}
+                  <div className="map-preview">
+                    <h4>Kartenansicht</h4>
+                    <div className="map-container">
+                      <MapContainer
+                        center={mapCenter}
+                        zoom={mapZoom}
+                        style={{ height: '280px', width: '100%' }}
+                        ref={mapRef}
                       >
-                        Alle auswählen
-                      </button>
-                      <button 
-                        className="btn-small btn-secondary"
-                        onClick={handleDeselectAll}
-                      >
-                        Alle abwählen
-                      </button>
+                        <TileLayer
+                          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                          url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
+                        />
+                        
+                        {/* GPX Track */}
+                        <Polyline
+                          positions={gpxData.map(point => [point.lat, point.lon])}
+                          pathOptions={{
+                            color: '#667eea',
+                            weight: 3,
+                            opacity: 0.7
+                          }}
+                        />
+                        
+                        {/* Peak Markers */}
+                        {detectedPeaks.map((peak, idx) => (
+                          <Marker
+                            key={idx}
+                            position={[peak.lat, peak.lon]}
+                            opacity={hoveredPeakIndex === idx ? 1 : selectedPeakIndices.includes(idx) ? 0.7 : 0.3}
+                          >
+                            <Popup>
+                              <div>
+                                <strong>Gipfel #{idx + 1}</strong><br/>
+                                Höhe: {Math.round(peak.ele)} m<br/>
+                                Dauer: {peak.duration.toFixed(1)} min<br/>
+                                Score: {peak.score.toFixed(1)}<br/>
+                                <small>{peak.lat.toFixed(5)}, {peak.lon.toFixed(5)}</small>
+                              </div>
+                            </Popup>
+                          </Marker>
+                        ))}
+                      </MapContainer>
                     </div>
                   </div>
-                  <div className="peaks-table">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th width="40"></th>
-                          <th width="40">#</th>
-                          <th>Zeit</th>
-                          <th>Dauer</th>
-                          <th>Höhe</th>
-                          <th>Prominenz</th>
-                          <th>Score</th>
-                          <th>Koordinaten</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detectedPeaks.map((peak, idx) => {
-                          const scoreClass = peak.score > 60 ? 'score-high' : 
-                                           peak.score > 30 ? 'score-medium' : 'score-low';
-                          return (
-                            <tr 
-                              key={idx} 
-                              className={`${selectedPeakIndices.includes(idx) ? 'selected' : ''} ${hoveredPeakIndex === idx ? 'hovered' : ''}`}
-                              onClick={() => handlePeakToggle(idx)}
-                              onMouseEnter={() => setHoveredPeakIndex(idx)}
-                              onMouseLeave={() => setHoveredPeakIndex(null)}
-                            >
-                              <td>
-                                <input
-                                  type="checkbox"
-                                  checked={selectedPeakIndices.includes(idx)}
-                                  onChange={() => handlePeakToggle(idx)}
-                                  onClick={(e) => e.stopPropagation()}
-                                />
-                              </td>
-                              <td><strong>{idx + 1}</strong></td>
-                              <td>{formatTime(peak.startTime)}</td>
-                              <td>{peak.duration.toFixed(1)} min</td>
-                              <td>{Math.round(peak.ele)} m</td>
-                              <td>{peak.prominence ? peak.prominence.toFixed(1) : 'N/A'} m</td>
-                              <td>
-                                <span className={`score-badge ${scoreClass}`}>{peak.score.toFixed(1)}</span>
-                                <div className="score-breakdown">
-                                  D:{peak.durationScore.toFixed(0)} | 
-                                  H:{peak.elevationScore.toFixed(0)} | 
-                                  P:{peak.prominenceScore.toFixed(0)}
-                                </div>
-                              </td>
-                              <td className="coords-cell">
-                                {peak.lat.toFixed(5)}, {peak.lon.toFixed(5)}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
                 </div>
-              )}
+              </div>
 
               <div className="gpx-actions">
                 <button 

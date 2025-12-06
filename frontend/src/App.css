@@ -704,7 +704,7 @@ body {
 .gpx-analyzer-modal {
   background: white;
   border-radius: 12px;
-  max-width: 900px;
+  max-width: 1400px;
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
@@ -854,6 +854,119 @@ body {
   color: #2d3748;
   margin-right: 8px;
 }
+
+/* Two-column layout */
+.gpx-two-column-layout {
+  display: grid;
+  grid-template-columns: 400px 1fr;
+  gap: 24px;
+  margin-top: 24px;
+}
+
+.gpx-left-column {
+  display: flex;
+  flex-direction: column;
+}
+
+.gpx-right-column {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Compact table styles */
+.detected-peaks-list-compact {
+  background: #f7fafc;
+  border-radius: 8px;
+  padding: 16px;
+  height: fit-content;
+}
+
+.peaks-table-compact {
+  overflow-x: auto;
+  max-height: 630px;
+  overflow-y: auto;
+}
+
+.peaks-table-compact table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+.peaks-table-compact thead {
+  background: #e2e8f0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.peaks-table-compact th {
+  padding: 10px 6px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2d3748;
+  border-bottom: 2px solid #cbd5e0;
+}
+
+.peaks-table-compact tbody tr {
+  cursor: pointer;
+  transition: background 0.2s;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.peaks-table-compact tbody tr:hover {
+  background: #f7fafc;
+}
+
+.peaks-table-compact tbody tr.hovered {
+  background: #fef3c7 !important;
+  box-shadow: inset 0 0 0 2px #fbbf24;
+}
+
+.peaks-table-compact tbody tr.selected {
+  background: #e6f2ff;
+}
+
+.peaks-table-compact tbody tr.selected.hovered {
+  background: #bfdbfe !important;
+  box-shadow: inset 0 0 0 2px #3b82f6;
+}
+
+.peaks-table-compact td {
+  padding: 10px 6px;
+  font-size: 12px;
+  color: #4a5568;
+}
+
+.peaks-table-compact td input[type="checkbox"] {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+}
+
+/* Map preview */
+.map-preview {
+  background: #f7fafc;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.map-preview h4 {
+  margin-bottom: 12px;
+  color: #2d3748;
+}
+
+.map-container {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
 
 .elevation-profile h4 {
   margin-bottom: 8px;
