@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { formatDate } from '../utils/dateUtils';
+import { getTileUrl, getMapStyle, MAPTILER_CONFIG } from '../config/maptiler';
 
 // Custom mountain icon
 const mountainIcon = new L.DivIcon({
@@ -29,27 +30,63 @@ const mountainIcon = new L.DivIcon({
   popupAnchor: [0, -16],
 });
 
-// Component to handle map bounds updates
-function MapBoundsHandler({ summits, selectedId }) {
+// Component to track and update zoom level
+function ZoomTracker({ onZoomChange }) {
   const map = useMap();
 
   useEffect(() => {
-    if (summits.length > 0) {
+    // Set initial zoom
+    onZoomChange(map.getZoom());
+
+    // Listen for zoom changes
+    const handleZoom = () => {
+      onZoomChange(map.getZoom());
+    };
+
+    map.on('zoomend', handleZoom);
+
+    return () => {
+      map.off('zoomend', handleZoom);
+    };
+  }, [map, onZoomChange]);
+
+  return null;
+}
+
+// Component to handle map tile layer updates
+function TileLayerUpdater({ mapStyle }) {
+  const map = useMap();
+  
+  useEffect(() => {
+    // Force re-render of tiles when style changes
+    map.invalidateSize();
+  }, [mapStyle, map]);
+  
+  return null;
+}
+
+// Component to handle map bounds updates
+function MapBoundsHandler({ summits, selectedId, zoomLevel }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (summits.length > 0 && !selectedId) {
       const bounds = summits.map((s) => [s.latitude, s.longitude]);
       map.fitBounds(bounds, { padding: [50, 50] });
     }
-  }, [summits, map]);
+  }, [summits, map, selectedId]);
 
   useEffect(() => {
     if (selectedId) {
       const summit = summits.find((s) => s.id === selectedId);
       if (summit) {
-        map.setView([summit.latitude, summit.longitude], 13, {
+        map.setView([summit.latitude, summit.longitude], zoomLevel, {
           animate: true,
+          duration: 0.5,
         });
       }
     }
-  }, [selectedId, summits, map]);
+  }, [selectedId, summits, map, zoomLevel]);
 
   return null;
 }
@@ -58,6 +95,12 @@ function SummitMap({ summits, selectedId, onSelectSummit }) {
   const mapRef = useRef(null);
   const containerRef = useRef(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [mapStyle, setMapStyle] = useState(MAPTILER_CONFIG.defaultStyle);
+  const [showStyleSelector, setShowStyleSelector] = useState(false);
+  const [currentZoom, setCurrentZoom] = useState(6);
+  const [selectionZoom, setSelectionZoom] = useState(14); // Default zoom when selecting summit
+
+  const currentStyle = getMapStyle(mapStyle);
 
   // Handle fullscreen toggle
   const toggleFullscreen = () => {
@@ -88,8 +131,20 @@ function SummitMap({ summits, selectedId, onSelectSummit }) {
     };
   }, []);
 
+  // Get zoom level description
+  const getZoomDescription = (zoom) => {
+    if (zoom <= 6) return 'Region';
+    if (zoom <= 9) return 'Area';
+    if (zoom <= 11) return 'Valley';
+    if (zoom <= 13) return 'Mountain';
+    if (zoom <= 15) return 'Peak';
+    if (zoom <= 17) return 'Trail';
+    return 'Detail';
+  };
+
   return (
     <div className="map-container" ref={containerRef}>
+      {/* Fullscreen Button */}
       <button 
         className="map-fullscreen-btn"
         onClick={toggleFullscreen}
@@ -97,18 +152,106 @@ function SummitMap({ summits, selectedId, onSelectSummit }) {
       >
         {isFullscreen ? '✕' : '⛶'}
       </button>
+      
+      {/* Map Style Selector */}
+      <div className="map-style-selector">
+        <button 
+          className="map-style-btn"
+          onClick={() => setShowStyleSelector(!showStyleSelector)}
+          title="Kartenstil ändern"
+        >
+          🗺️ {currentStyle.name}
+        </button>
+        
+        {showStyleSelector && (
+          <div className="map-style-dropdown">
+            {Object.entries(MAPTILER_CONFIG.styles).map(([key, style]) => (
+              <button
+                key={key}
+                className={`map-style-option ${mapStyle === key ? 'active' : ''}`}
+                onClick={() => {
+                  setMapStyle(key);
+                  setShowStyleSelector(false);
+                }}
+              >
+                {style.name}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Zoom Info Display */}
+      <div className="map-zoom-info">
+        <div className="zoom-level">
+          Zoom: {currentZoom.toFixed(1)}
+        </div>
+        <div className="zoom-description">
+          {getZoomDescription(currentZoom)}
+        </div>
+      </div>
+
+      {/* Selection Zoom Control */}
+      <div className="map-selection-zoom">
+        <label className="zoom-label">
+          Auswahl-Zoom:
+        </label>
+        <div className="zoom-controls">
+          <button
+            className="zoom-btn"
+            onClick={() => setSelectionZoom(Math.max(10, selectionZoom - 1))}
+            disabled={selectionZoom <= 10}
+            title="Weniger Zoom bei Auswahl"
+          >
+            −
+          </button>
+          <span className="zoom-value">{selectionZoom}</span>
+          <button
+            className="zoom-btn"
+            onClick={() => setSelectionZoom(Math.min(18, selectionZoom + 1))}
+            disabled={selectionZoom >= 18}
+            title="Mehr Zoom bei Auswahl"
+          >
+            +
+          </button>
+        </div>
+        <div className="zoom-preset-btns">
+          <button
+            className={`zoom-preset ${selectionZoom === 12 ? 'active' : ''}`}
+            onClick={() => setSelectionZoom(12)}
+            title="Übersicht"
+          >
+            Übersicht
+          </button>
+          <button
+            className={`zoom-preset ${selectionZoom === 14 ? 'active' : ''}`}
+            onClick={() => setSelectionZoom(14)}
+            title="Standard"
+          >
+            Standard
+          </button>
+          <button
+            className={`zoom-preset ${selectionZoom === 16 ? 'active' : ''}`}
+            onClick={() => setSelectionZoom(16)}
+            title="Nah"
+          >
+            Nah
+          </button>
+        </div>
+      </div>
+      
       <MapContainer
         center={[47.5, 11.5]}
         zoom={6}
-        maxZoom={17}
+        maxZoom={currentStyle.maxZoom}
         style={{ height: '100%', width: '100%' }}
         ref={mapRef}
       >
         <TileLayer
-          url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
-          attribution='Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; OpenTopoMap'
-          maxZoom={17}
-          maxNativeZoom={17}
+          key={mapStyle}
+          url={getTileUrl(mapStyle)}
+          attribution={currentStyle.attribution}
+          maxZoom={currentStyle.maxZoom}
         />
 
         {summits.map((summit) => (
@@ -154,7 +297,9 @@ function SummitMap({ summits, selectedId, onSelectSummit }) {
           </Marker>
         ))}
 
-        <MapBoundsHandler summits={summits} selectedId={selectedId} />
+        <MapBoundsHandler summits={summits} selectedId={selectedId} zoomLevel={selectionZoom} />
+        <TileLayerUpdater mapStyle={mapStyle} />
+        <ZoomTracker onZoomChange={setCurrentZoom} />
       </MapContainer>
     </div>
   );

@@ -3,6 +3,7 @@ import Plotly from 'plotly.js-dist-min';
 import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { getTileUrl, getMapStyle } from '../config/maptiler';
 
 // Fix for default marker icons in React
 delete L.Icon.Default.prototype._getIconUrl;
@@ -622,8 +623,9 @@ function GpxAnalyzer({ onPeaksDetected, onClose }) {
                         ref={mapRef}
                       >
                         <TileLayer
-                          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                          url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
+                          url={getTileUrl('outdoor')}
+                          attribution={getMapStyle('outdoor').attribution}
+                          maxZoom={getMapStyle('outdoor').maxZoom}
                         />
                         
                         {/* GPX Track */}
